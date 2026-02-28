@@ -1,0 +1,98 @@
+shars-own [ mission base-carrier fuel missiles objx objy vis_range aim9l_range ]
+
+;; this is the loop for the shars. I'll put this in a separate file...at some point
+to move-shars
+  ask shars [
+    ;; get stimuli
+    let bc base-carrier
+    let my-carrier one-of carriers with [name = bc]
+    let target-dagger contact-daggers?;;min-one-of daggers [ distance myself ]
+    
+    ;; logic: decisions and actions, depends on state. Order matters here. 
+    ;;        I couldn't decide between a chain of if statements and nested if statements.
+    if fuel < 100 [ 
+      set speed 0.5
+      set state "rtb" 
+    ]
+    if missiles <= 0 [ set state "rtb" ]
+    if state = "transit" [ ;; protip! set all the pertinent state parameters at the start of the state logic. that way, you just have to set the state
+      set speed 0.5
+      facexy objx objy
+      if distance patch objx objy < (1.5 * speed) [ ;; check to see if the shar reached its CAP, multiplier prevents glitching
+        set state "loiter" ;; protip (cont...): like so
+      ]
+      if target-dagger != nobody [
+        set state "intercept"
+      ]
+    ]
+    if state = "loiter" [
+      rt 10 ;; orbit CAP upon arrival
+      set speed 0.5
+      if target-dagger != nobody [ ;; I had to keep checking for nobody because it kept throwing errors
+        set state "intercept"
+        set speed 1
+        face target-dagger
+      ]
+    ]
+    if state = "intercept" [
+      set speed 1
+      ifelse target-dagger != nobody [
+        if distance target-dagger < speed [ ;; aka both turtles occupy the same patch
+          set state "engage" 
+          ask target-dagger [ set state "engage" ]
+        ]
+        ifelse target-dagger != nobody [ 
+          let leading-patch [ patch-ahead 2 ] of target-dagger ;; aiming a little ahead the daggers for faster intercept
+          face leading-patch
+        ] [ 
+          if mission = "cap" [ set state "transit" ]
+          if mission = "strike" [ set state "strike" ]
+        ]
+      ] [ 
+        if mission = "cap" [ set state "transit" ]
+        if mission = "strike" [ set state "strike" ]
+      ]
+    ]
+    if state = "engage" [
+      move-to target-dagger
+      set speed 0
+      set missiles missiles - 1
+      if target-dagger != nobody [ 
+        ask target-dagger [ die ] ;; shar triggers the destruction of the attack formation
+        set intercepts intercepts + 1 
+        set state "transit"
+      ]
+    ]
+    if state = "strike" [
+      set speed 1
+      facexy objx objy
+      if distance patch objx objy < (1.5 * speed) [ ;; check to see if the shar reached its target, multiplier prevents glitching
+        ask patch objx objy [ set pcolor ocean-color + random-float ocean-offset ]
+        set state "rtb" ;; protip (cont...): like sof
+      ]
+    ]
+    if state = "rtb" [
+      set speed 0.5
+      face my-carrier
+      if distance my-carrier < speed [ ;; refuel!
+        move-to my-carrier
+        if mission = "strike" [
+          ask my-carrier [ set striking? false ]
+        ]
+        die ;; "land and disappear"
+      ]
+    ]
+    
+    set fuel fuel - 1
+    forward speed ;; don't forget to make the agents move!
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      if stat? = "fuel" [ set label fuel ]
+      if stat? = "missiles" [ set label missiles ]
+      if stat? = "state" [ set label state ]
+    ] [ set label "" ]
+    
+    ;; set new state 
+  ]
+end
