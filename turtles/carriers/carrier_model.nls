@@ -1,0 +1,113 @@
+carriers-own [ name new-heading turn-rate striking? ]
+
+to setup-carriers 
+  create-carriers 1 [ 
+    set shape "hms-invincible" ;; determines the icon to display the turtle
+    set name "hms-invincible"
+    set speed 0.04
+    set state "straight"
+    set striking? false
+    set turn-rate 0.5
+    set size 5
+    set color gray
+    setxy random-xcor random-ycor 
+  ]
+  
+  create-carriers 1 [ 
+    set shape "hms-hermes" ;; determines the icon to display the turtle
+    set name "hms-hermes"
+    set speed 0.04
+    set state "straight"
+    set striking? false
+    set turn-rate 0.5
+    set size 5
+    set color gray
+    setxy random-xcor random-ycor 
+  ]
+end
+
+to launch-shars [ num ms obj-xy ]
+  ;; num: # to create =
+  ;; launch-state: initial state when launched
+  ;; obj: starting objective, used for directing the shars to a location
+  let msn ms 
+  let ox (item 0 obj-xy)
+  let oy (item 1 obj-xy)
+  
+  hatch-shars num [
+    set shape "shar-pair" 
+    set size 2
+    set color 102 + random-float 3 ;; I wanted all the shars to be unique colors to distinguish them, but also all blue
+    set base-carrier [ name ] of myself
+    set fuel 200
+    set missiles 2
+    set mission msn
+    if mission = "cap" [
+      set state "transit"
+    ]
+    if mission = "strike" [
+      set state "strike"
+    ]
+    set vis_range 10
+    set aim9l_range 1
+    set objx ox
+    set objy oy
+    facexy objx objy
+    set speed 1
+  ]
+end 
+
+to move-carriers
+  ask patches with [pcolor = yellow] [
+    ;; Find the carrier closest to this yellow patch
+    let nearest-carrier min-one-of carriers [distance myself]
+    
+    let target-x pxcor
+    let target-y pycor
+    
+    ask nearest-carrier [ 
+      if not striking? [
+        launch-shars 1 "strike" (list target-x target-y) 
+        set striking? true
+      ]
+    ]
+  ]
+  
+  ask carriers [
+    ifelse state = "turning" [
+      let delta subtract-headings new-heading heading
+      ifelse abs (delta) > turn-rate [ ;; need to keep turning
+        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+      ] [
+        set state "straight"
+      ]
+    ] [
+      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
+      if ticks mod 500 = 0 [
+        if random 100 > 30 [ 
+          set new-heading new-heading + 45 - random 90
+          set state "turning"
+        ]
+      ]
+    ]
+    forward speed
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ]
+  ]
+end
+
+to spawn-shars?
+  let interval 75
+  ifelse name = "hms-hermes" [  ;; launches were staggered by 30min b/w carriers in real conflict. Invincible launched 2nd.
+    if ticks mod interval = 0 [
+      launch-shars 1 "cap" (list random-xcor random-ycor)
+    ]
+  ][
+    if (ticks + 25) mod interval = 0 [
+      launch-shars 1 "cap" (list random-xcor random-ycor)
+    ]
+  ]
+end

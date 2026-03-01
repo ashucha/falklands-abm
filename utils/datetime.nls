@@ -1,0 +1,42 @@
+to advance-time [ m ]
+  set cur-min cur-min + m
+  
+  ;; Roll minutes into hours
+  while [cur-min >= 60] [
+    set cur-min cur-min - 60
+    set cur-hour cur-hour + 1
+  ]
+  
+  ;; Roll hours into days
+  while [cur-hour >= 24] [
+    set cur-hour cur-hour - 24
+    set cur-day cur-day + 1
+    set conflict-days conflict-days + 1
+  ]
+  
+  ;; Roll days into months (The tricky part)
+  let month-lengths [0 31 28 31 30 31 30 31 31 30 31 30 31]
+
+  while [cur-day > (item cur-month month-lengths)] [
+    set cur-day cur-day - (item cur-month month-lengths)
+    set cur-month cur-month + 1
+    
+    ;; Roll months into years
+    if cur-month > 12 [
+      set cur-month 1
+      set cur-year cur-year + 1
+    ]
+  ]
+end
+
+to update-date-string
+  let month-names ["" "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"]
+  let m-name item cur-month month-names
+  
+  set current-date-string (word m-name " " cur-day " " cur-year " - " 
+                          format-digit cur-hour ":" format-digit cur-min)
+end
+
+to-report format-digit [n]
+  ifelse n < 10 [ report (word "0" n) ] [ report n ]
+end
