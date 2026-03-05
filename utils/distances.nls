@@ -1,20 +1,24 @@
 ;; These function are used for distance conversions. Don't use them too often though because of rounding errors.
 ;; --- Nautical Miles as the Base ---
 
-to-report nm-to-miles [ n ]
+to-report nmi-to-miles [ n ]
   report n * 1.15078
 end
 
-to-report miles-to-nm [ m ]
+to-report miles-to-nmi [ m ]
   report m / 1.15078
 end
 
-to-report nm-to-km [ n ]
+to-report nmi-to-km [ n ]
   report n * 1.852
 end
 
 to-report km-to-nm [ k ]
   report k / 1.852
+end
+
+to-report nmi-to-patches [ n ]
+  report (nmi-to-km n) / km-per-patch
 end
 
 ;; --- Miles and Kilometers ---

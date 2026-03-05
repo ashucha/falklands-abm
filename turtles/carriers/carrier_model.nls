@@ -1,12 +1,17 @@
-carriers-own [ name new-heading turn-rate striking? ]
+carriers-own [ name new-heading turn-rate striking? alert-avail? shar-count ]
 
 to setup-carriers 
+  set carrier-alert-dist 180 / km-per-patch ;; TODO: this value is entirely false, just based on the 180km range of exocets
+  set shar-launch-int floor (60 / minutes-per-tick)
+  
   create-carriers 1 [ 
     set shape "hms-invincible" ;; determines the icon to display the turtle
     set name "hms-invincible"
+    set shar-count 8
     set speed 0.04
     set state "straight"
     set striking? false
+    set alert-avail? true
     set turn-rate 0.5
     set size 5
     set color gray
@@ -16,9 +21,11 @@ to setup-carriers
   create-carriers 1 [ 
     set shape "hms-hermes" ;; determines the icon to display the turtle
     set name "hms-hermes"
+    set shar-count 12
     set speed 0.04
     set state "straight"
     set striking? false
+    set alert-avail? true
     set turn-rate 0.5
     set size 5
     set color gray
@@ -33,12 +40,13 @@ to launch-shars [ num ms obj-xy ]
   let msn ms 
   let ox (item 0 obj-xy)
   let oy (item 1 obj-xy)
-  
+   
   hatch-shars num [
     set shape "shar-pair" 
     set size 2
     set color 102 + random-float 3 ;; I wanted all the shars to be unique colors to distinguish them, but also all blue
     set base-carrier [ name ] of myself
+    ask myself [ set shar-count shar-count - 2 * num ] ;; harriers fly in pairs
     set fuel 830 ;; imp gal
     set missiles 2
     set mission msn
@@ -48,31 +56,39 @@ to launch-shars [ num ms obj-xy ]
     if mission = "strike" [
       set state "strike"
     ]
-    set vis_range 10
-    set aim9l_range 1
     set objx ox
     set objy oy
     facexy objx objy
   ]
 end 
 
-to move-carriers
-  ask patches with [pcolor = yellow] [
-    ;; Find the carrier closest to this yellow patch
-    let nearest-carrier min-one-of carriers [distance myself]
-    
-    let target-x pxcor
-    let target-y pycor
-    
-    ask nearest-carrier [ 
-      if not striking? [
-        launch-shars 1 "strike" (list target-x target-y) 
-        set striking? true
-      ]
-    ]
+to launch-alert-shars [ tgt ]
+  let target tgt
+  
+  hatch-shars 1 [
+    ask myself [ set shar-count shar-count - 2 ] ;; harriers fly in pairs
+    set shape "shar-pair" 
+    set size 2
+    set color 102 + random-float 3 ;; I wanted all the shars to be unique colors to distinguish them, but also all blue
+    set base-carrier [ name ] of myself
+    set fuel 830 ;; imp gal
+    set missiles 2
+    set state "intercept"
+    set mission "alert"
+    set cued-target target
+    face cued-target
   ]
+end
+
+to move-carriers
   
   ask carriers [
+    let dagger-threat contact-daggers? carrier-alert-dist
+    if dagger-threat != nobody and shar-count > 2 and alert-avail? [
+      launch-alert-shars dagger-threat
+      set alert-avail? false
+    ]
+    
     ifelse state = "turning" [
       let delta subtract-headings new-heading heading
       ifelse abs (delta) > turn-rate [ ;; need to keep turning
@@ -93,20 +109,32 @@ to move-carriers
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
-      set label name
+      if carrier-stat? = "name" [ set label name ]
+      if carrier-stat? = "shars" [ set label shar-count ]
     ] [ set label "" ]
   ]
 end
 
 to spawn-shars?
-  let interval 75
+  let interval shar-launch-int
+  ;; set CAP at random (x,y) along 200nm radius around carrier
+  let theta random 360
+  let shar-range nmi-to-patches 200
+  let new-x xcor + shar-range * cos theta
+  let new-y ycor + shar-range * sin theta
+  if new-x < min-pxcor [ set new-x min-pxcor ]
+  if new-x > max-pxcor [ set new-x max-pxcor ]
+  if new-y < min-pycor [ set new-y min-pycor ]
+  if new-y > max-pycor [ set new-y max-pycor ]
   ifelse name = "hms-hermes" [  ;; launches were staggered by 30min b/w carriers in real conflict. Invincible launched 2nd.
     if ticks mod interval = 0 [
-      launch-shars 1 "cap" (list random-xcor random-ycor)
+      ;launch-shars 1 "cap" (list random-xcor random-ycor)
+      launch-shars 1 "cap" (list new-x new-y)
     ]
   ][
     if (ticks + 25) mod interval = 0 [
-      launch-shars 1 "cap" (list random-xcor random-ycor)
+      ;launch-shars 1 "cap" (list random-xcor random-ycor)
+      launch-shars 1 "cap" (list new-x new-y)
     ]
   ]
 end

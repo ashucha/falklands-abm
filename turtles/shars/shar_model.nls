@@ -1,14 +1,18 @@
-shars-own [ mission base-carrier fuel missiles objx objy vis_range aim9l_range ]
+shars-own [ mission base-carrier fuel missiles objx objy cued-target ]
 
 ;; this sets the constants for the shars
 to setup-shars
   let mi-per-patch km-to-miles km-per-patch
-  set shar-cruise-speed 7.7 * minutes-per-tick / mi-per-patch ;; 460/60
-  set shar-max-speed  12.15 * minutes-per-tick / mi-per-patch ;; 730/60
+  set shar-cruise-speed 7.7 * minutes-per-tick / mi-per-patch ;; 460/60=7.7mph   -> units: patches per tick
+  set shar-max-speed  12.15 * minutes-per-tick / mi-per-patch ;; 730/60=12.15mph -> units: patches per tick
   
   ;; fuel burn
-  set shar-cruise-burn  9.2 * minutes-per-tick ;; 553/60
-  set shar-max-burn   27.65 * minutes-per-tick ;; 1660/60
+  set shar-cruise-burn  9.2 * minutes-per-tick ;; 553/60=9.2 imp gal/min     -> units: fuel per tick
+  set shar-max-burn   27.65 * minutes-per-tick ;; 1660/60=27.65  imp gal/min -> units: fuel per tick
+  
+  ;; ranges
+  set shar-vis-range nmi-to-patches 6 ;; 6nmi -> units: patches
+  set aim9l-range    nmi-to-patches 1 ;; 1nmi -> units: patches
 end
 
 ;; this is the loop for the shars. I'll put this in a separate file...at some point
@@ -17,7 +21,7 @@ to move-shars
     ;; get stimuli
     let bc base-carrier
     let my-carrier one-of carriers with [name = bc]
-    let target-dagger contact-daggers?;;min-one-of daggers [ distance myself ]
+    let target-dagger contact-daggers? shar-vis-range;;min-one-of daggers [ distance myself ]
     
     ;; logic: decisions and actions, depends on state. Order matters here. 
     ;;        I couldn't decide between a chain of if statements and nested if statements.
@@ -36,8 +40,9 @@ to move-shars
       ]
     ]
     if state = "loiter" [
-      rt 10 ;; orbit CAP upon arrival
-      set speed "cruise"
+      ;rt 5 * km-per-patch;; orbit CAP upon arrival
+      ;set speed "cruise"
+      set speed "frozen"
       if target-dagger != nobody [ ;; I had to keep checking for nobody because it kept throwing errors
         set state "intercept"
         face target-dagger
@@ -45,35 +50,42 @@ to move-shars
     ]
     if state = "intercept" [
       set speed "max"
-      ifelse target-dagger != nobody [
+      ifelse target-dagger != nobody [ ;; if I don't see anyone
         if distance target-dagger < shar-max-speed [ ;; aka both turtles occupy the same patch
           set state "engage" 
           ask target-dagger [ set state "engage" ]
         ]
         ifelse target-dagger != nobody [ 
           let leading-patch [ patch-ahead 2 ] of target-dagger ;; aiming a little ahead the daggers for faster intercept
-          face leading-patch
+          if leading-patch != nobody [ face leading-patch ]
         ] [ 
           if mission = "cap" [ set state "transit" ]
           if mission = "strike" [ set state "strike" ]
+          if mission = "alert" [ set state "rtb" ]
         ]
       ] [ 
-        if mission = "cap" [ set state "transit" ]
-        if mission = "strike" [ set state "strike" ]
+        ifelse cued-target != nobody [ ;; if I have a radar cue
+          face cued-target
+        ] [ ;; if I don't see anyone and I have no radar cues
+          if mission = "cap" [ set state "transit" ]
+          if mission = "strike" [ set state "strike" ]
+          if mission = "alert" [ set state "rtb" ]
+        ]
       ]
     ]
     if state = "engage" [
-      move-to target-dagger
-      set speed "stopped"
+      set speed "frozen"
       set missiles missiles - 1
       if target-dagger != nobody [ 
+        move-to target-dagger
         ask target-dagger [ die ] ;; shar triggers the destruction of the attack formation
         set intercepts intercepts + 1 
-        set state "transit"
+        if mission = "cap" [ set state "transit" ]
+        if mission = "alert" [ set state "rtb" ]
       ]
     ]
     if state = "strike" [
-      set speed "max"
+      set speed "cruise"
       facexy objx objy
       if distance patch objx objy < (1.5 * shar-max-speed) [ ;; check to see if the shar reached its target, multiplier prevents glitching
         ask patch objx objy [ set pcolor ocean-color + random-float ocean-offset ]
@@ -88,6 +100,10 @@ to move-shars
         if mission = "strike" [
           ask my-carrier [ set striking? false ]
         ]
+        if mission = "alert" [
+          ask my-carrier [ set alert-avail? true ]
+        ]
+        ask my-carrier [ set shar-count shar-count + 2 ]
         die ;; "land and disappear"
       ]
     ]
@@ -100,26 +116,27 @@ to move-shars
       set fuel fuel - shar-max-burn
       forward shar-max-speed
     ]
+    if state = "loiter" [ set fuel fuel - shar-cruise-burn ]
+    if state = "engage" [ set fuel fuel - shar-max-burn ]
     
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
-      if stat? = "fuel" [ set label fuel ]
-      if stat? = "missiles" [ set label missiles ]
-      if stat? = "state" [ set label state ]
+      if shar-stat? = "fuel"     [ set label fuel ]
+      if shar-stat? = "missiles" [ set label missiles ]
+      if shar-stat? = "state"    [ set label state ]
+      if shar-stat? = "mission"  [ set label mission ]
     ] [ set label "" ]
     
     ;; set new state 
   ]
 end
 
+;; Returns true if the shar is at bingo fuel and must rtb
 to-report is-bingo?
   let bc base-carrier
   let my-carrier one-of carriers with [name = bc]
   let dist-patches distance my-carrier
-  ;let dist-miles dist-patches * km-to-miles km-per-patch
-  ;let min-needed  (dist-miles / shar-cruise-speed)
-  ;let fuel-needed (min-needed * shar-cruise-burn)
   let fuel-needed dist-patches / shar-cruise-speed * shar-cruise-burn
   let safety-buffer 1.10
   let bingo-threshold fuel-needed * safety-buffer
