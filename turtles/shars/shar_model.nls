@@ -16,6 +16,7 @@ to setup-shars
   
   ;; probabilities
   set aim9l-pkill 0.7273
+  
 end
 
 ;; this is the loop for the shars. I'll put this in a separate file...at some point
@@ -46,6 +47,7 @@ to move-shars
       ;rt 5 * km-per-patch;; orbit CAP upon arrival
       ;set speed "cruise"
       set speed "frozen"
+      setxy objx objy
       if target-dagger != nobody [ ;; I had to keep checking for nobody because it kept throwing errors
         set state "intercept"
         face target-dagger

@@ -4,6 +4,27 @@ to setup-carriers
   set carrier-alert-dist 180 / km-per-patch ;; TODO: this value is entirely false, just based on the 180km range of exocets
   set shar-launch-int floor (60 / minutes-per-tick)
   
+  ;; CAPs
+  set shar-cap-list (list
+    (list miles-to-patches 0      miles-to-patches 0)
+    (list miles-to-patches 50     miles-to-patches 5)
+    (list miles-to-patches 37.5   miles-to-patches -20)
+    (list miles-to-patches 8.33   miles-to-patches -41.67)
+    (list miles-to-patches -30    miles-to-patches -41.67)
+    (list miles-to-patches -66.67 miles-to-patches -45)
+    (list miles-to-patches -66.67 miles-to-patches 12.5)
+    (list miles-to-patches -30    miles-to-patches 37.5)
+    (list miles-to-patches 0      miles-to-patches 45)
+    (list miles-to-patches 50     miles-to-patches 25)
+    (list miles-to-patches -20    miles-to-patches -12)
+  )
+  let i 1
+  while [i < length shar-cap-list] [
+    let c (item i shar-cap-list)
+    ask patch (item 0 c) (item 1 c) [ set pcolor yellow ]
+    set i i + 1
+  ]
+  
   create-carriers 1 [ 
     set shape "hms-invincible" ;; determines the icon to display the turtle
     set name "hms-invincible"
@@ -15,7 +36,7 @@ to setup-carriers
     set turn-rate 0.5
     set size 5
     set color gray
-    setxy random-xcor random-ycor 
+    setxy random-xcor random-ycor  
   ]
   
   create-carriers 1 [ 
@@ -119,24 +140,39 @@ end
 
 to spawn-shars?
   let interval shar-launch-int
+  let c get-cap
+  let capx (item 0 c)
+  let capy (item 1 c)
+  
   ;; set CAP at random (x,y) along 200nm radius around carrier
-  let theta random 360
-  let shar-range nmi-to-patches 200
-  let new-x xcor + shar-range * cos theta
-  let new-y ycor + shar-range * sin theta
-  if new-x < min-pxcor [ set new-x min-pxcor ]
-  if new-x > max-pxcor [ set new-x max-pxcor ]
-  if new-y < min-pycor [ set new-y min-pycor ]
-  if new-y > max-pycor [ set new-y max-pycor ]
+;   let theta random 360
+;   let shar-range nmi-to-patches 200
+;   let new-x xcor + shar-range * cos theta
+;   let new-y ycor + shar-range * sin theta
+;   if new-x < min-pxcor [ set new-x min-pxcor ]
+;   if new-x > max-pxcor [ set new-x max-pxcor ]
+;   if new-y < min-pycor [ set new-y min-pycor ]
+;   if new-y > max-pycor [ set new-y max-pycor ]
   ifelse name = "hms-hermes" [  ;; launches were staggered by 30min b/w carriers in real conflict. Invincible launched 2nd.
     if ticks mod interval = 0 [
       ;launch-shars 1 "cap" (list random-xcor random-ycor)
-      launch-shars 1 "cap" (list new-x new-y)
+      launch-shars 1 "cap" (list capx capy)
     ]
   ][
     if (ticks + 25) mod interval = 0 [
       ;launch-shars 1 "cap" (list random-xcor random-ycor)
-      launch-shars 1 "cap" (list new-x new-y)
+      launch-shars 1 "cap" (list capx capy)
     ]
   ]
+end
+
+
+to-report get-cap 
+  let c 0
+  ifelse name = "hms-hermes" [ 
+    set c hermes-cap? 
+  ] [
+    set c invincible-cap? 
+  ]
+  report (item c shar-cap-list)
 end

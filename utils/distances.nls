@@ -21,6 +21,10 @@ to-report nmi-to-patches [ n ]
   report (nmi-to-km n) / km-per-patch
 end
 
+to-report miles-to-patches [ m ]
+  report (miles-to-km m) / km-per-patch
+end
+
 ;; --- Miles and Kilometers ---
 
 to-report miles-to-km [ m ]
