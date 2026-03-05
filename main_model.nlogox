@@ -3,6 +3,7 @@
   <code><![CDATA[__includes [ 
   "utils/datetime.nls"
   "utils/distances.nls"
+  "utils/events.nls"
   "turtles/shars/shar_model.nls" 
   "turtles/carriers/carrier_model.nls" 
   "turtles/frigates/frigates_model.nls"
@@ -17,6 +18,7 @@ globals [
   start-time
   cur-min cur-hour cur-day cur-month cur-year
   conflict-days
+  event-list
   
   ;; using these for plotting
   attacks 
@@ -37,6 +39,7 @@ globals [
 breed [ carriers carrier ]
 breed [ shars shar ]
 breed [ daggers dagger ]
+breed [ events event ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
 breed [ amphibs amphib ]
@@ -66,6 +69,8 @@ to setup
   set conflict-days 0
   update-date-string
   
+  setup-events
+  
   ;; initialize patches
   resize-world -100 250 -100 100
   ask patches [ set pcolor ocean-color + random-float ocean-offset ]
@@ -80,6 +85,20 @@ to setup
   setup-amphibs
   
   reset-ticks
+end
+
+;; this is the core loop that runs all of the turtles' logic each tick
+to go
+  advance-time minutes-per-tick
+  update-date-string
+  check-events
+  move-carriers
+  move-shars
+  move-daggers
+  spawn-dagger?
+  ;spawn-target?
+  ask carriers [ spawn-shars? ]
+  tick
 end
 
 ;; Generic RNG function
@@ -221,6 +240,8 @@ end
         <update>plot faa-jets</update>
       </pen>
     </plot>
+    <slider x="365" step="1" y="115" max="10" width="251" display="hermes-cap?" height="50" min="1" direction="Horizontal" default="9.0" variable="hermes-cap?"></slider>
+    <slider x="365" step="1" y="169" max="10" width="251" display="invincible-cap?" height="50" min="1" direction="Horizontal" default="10.0" variable="invincible-cap?"></slider>
   </widgets>
   <info>## WHAT IS IT?
 

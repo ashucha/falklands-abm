@@ -1,0 +1,26 @@
+events-own [ name day month done? ]
+
+to setup-events
+  create-events 1 [
+    ;; May 18
+    set day   18
+    set month 5
+    set done? false
+    set name "shar reinforcements"
+  ]
+end
+
+to check-events
+  ask events [
+    if not done? and cur-day = day and cur-month = month [
+      do-event name 
+    ]
+  ]
+end
+
+to do-event [ n ]
+  if n = "shar reinforcements" [
+    ask carriers [ set shar-count shar-count + 4 ]
+    set done? true
+  ]
+end
