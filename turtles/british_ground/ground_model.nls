@@ -1,0 +1,381 @@
+;; ground_model.nls
+;; routines for British and Argentine ground forces in the Falklands ABM
+
+;; shared variables for all ground turtles
+;;
+;; mobility: movement speed modifier
+;; lethality: base probability of killing an enemy during close engagement
+;; aggression: additional multiplier in combat
+;; detection-range: radius at which enemy can be located and pursued (infinite for British)
+;; engagement-distance: distance at which combat begins
+;; max-accuracy-distance: maximum distance for full accuracy (accuracy falls off beyond this)
+;; health: current strength (dies when below health-threshold)
+;; unit-type: human-readable string of type
+
+turtles-own [
+  mobility
+  lethality
+  aggression
+  detection-range
+  engagement-distance
+  max-accuracy-distance
+  health
+  invulnerability    ;; defensive bonus (0 = none, 1 = immune)
+  unit-type
+  immovable?         ;; true for Argentine units (static), false for British (mobile)
+]
+
+;; threshold below which any unit dies
+globals [
+  health-threshold
+]
+
+;; initialization routines ---------------------------------------------------
+
+to setup-ground
+  set health-threshold 0.2  ;; units die when health drops below 20%
+  
+  ;; setup map: blue water boundaries, green ground in middle
+  ;; water boundaries are outside the green area
+  ask patches [
+    ifelse (pxcor >= -16 and pxcor <= 16 and pycor >= -16 and pycor <= 16) [
+      set pcolor green  ;; green ground for spawning
+    ] [
+      set pcolor blue   ;; blue water boundaries
+    ]
+  ]
+  
+  setup-british
+  setup-argentine
+  initialize-metrics
+end
+
+;; metrics to accumulate
+
+to initialize-metrics
+  set british-casualties 0
+  set argentine-casualties 0
+  set defenses-destroyed 0
+  set targets-captured 0
+end
+
+;; spawning ------------------------------------------------------------------
+
+;; British troops spawn in separate homogeneous clusters on the right edge
+
+to setup-british
+  let green-min-y -16
+  let green-max-y 16
+  let grid-height (green-max-y - green-min-y)
+  
+  ;; 1. Define the 8 rows for your 8 clusters
+  let grid-rows 8
+  let row-height (grid-height / grid-rows)
+  let spawn-x 15 ;; The vertical line
+  
+  ;; 2. Define the exact sequence you requested
+  let sequence (list "regular" "sas" "marine" "regular" "sas" "marine" "regular" "regular")
+  
+  let row-idx 0
+  foreach sequence [ unit-name ->
+    let section-min-y (green-min-y + row-idx * row-height)
+    
+    ;; 3. Spawn based on the current name in the sequence
+    if unit-name = "regular" [
+      create-regular-infantries 30 [
+        set-british-stats "regular" red 1.0 0.10 0 1000 2 1 0.10
+        setxy spawn-x (section-min-y + random-float row-height)
+      ]
+    ]
+    if unit-name = "marine" [
+      create-royal-marines 9 [
+        set-british-stats "royal-marine" magenta 1.15 0.20 0.10 1000 2.5 1.2 0.15
+        setxy spawn-x (section-min-y + random-float row-height)
+      ]
+    ]
+    if unit-name = "sas" [
+      create-special-forces 3 [
+        set-british-stats "special-force" turquoise 1.30 0.25 0.10 1000 3 2 0.20
+        setxy spawn-x (section-min-y + random-float row-height)
+      ]
+    ]
+    
+    set row-idx row-idx + 1
+  ]
+end
+
+;; Helper procedure to keep the setup clean
+to set-british-stats [u-type u-color u-mob u-leth u-agg u-det u-eng u-acc u-inv]
+  set unit-type u-type
+  set color u-color
+  set size 1.5
+  set mobility u-mob
+  set lethality u-leth
+  set aggression u-agg
+  set detection-range u-det
+  set engagement-distance u-eng
+  set max-accuracy-distance u-acc
+  set health 1.0
+  set invulnerability u-inv
+  set immovable? false
+end
+
+;; Argentine troops spawn in separate homogeneous clusters spread evenly across battlefield
+
+to setup-argentine
+  ;; divide green ground ONLY left side into sections for even distribution
+  let green-min-x -16
+  let green-max-x 16
+  let green-min-y -16
+  let green-max-y 16
+  let battlefield-width (green-max-x - green-min-x)
+  let battlefield-height (green-max-y - green-min-y)
+  let left-edge (green-min-x + battlefield-width / 3)  ;; use only left third of battlefield
+  let sections-x 2  ;; divide left side into 2 columns
+  let sections-y 2  ;; divide into 2 rows
+  let section-width (left-edge - green-min-x) / sections-x
+  let section-height (battlefield-height / sections-y)
+  
+  ;; conscripts: spread evenly across all sections
+  let cons-count argentine-conscripts-count
+  let cons-per-section floor (cons-count / (sections-x * sections-y))
+  let cons-extra (cons-count mod (sections-x * sections-y))
+  
+  let section-idx 0
+  repeat (sections-x * sections-y) [
+    let section-x (section-idx mod sections-x)
+    let section-y floor (section-idx / sections-x)
+    let base-x (green-min-x + section-x * section-width + random-float section-width)
+    let base-y (green-min-y + section-y * section-height + random-float section-height)
+    
+    let units-in-section cons-per-section
+    if section-idx < cons-extra [ set units-in-section units-in-section + 1 ]
+    
+    repeat units-in-section [
+      create-conscripts 1 [
+        set unit-type "conscript"
+        set color blue
+        set size 1.5
+        set mobility 0.0   ;; static
+        set lethality 0.08
+        set aggression 0
+        set detection-range 0  ;; not used for static units
+        set engagement-distance 1.5
+        set max-accuracy-distance 0.8
+        set health 1.0
+        set invulnerability 0.20
+        set immovable? true
+        ;; add some jitter around section center
+        setxy (base-x + random-float 2 - 1) (base-y + random-float 2 - 1)
+      ]
+    ]
+    set section-idx section-idx + 1
+  ]
+  
+  ;; Argentine elites: spread evenly across all sections
+  let elite-count argentine-elites-count
+  let elite-per-section floor (elite-count / (sections-x * sections-y))
+  let elite-extra (elite-count mod (sections-x * sections-y))
+  
+  set section-idx 0
+  repeat (sections-x * sections-y) [
+    let section-x (section-idx mod sections-x)
+    let section-y floor (section-idx / sections-x)
+    let base-x (green-min-x + section-x * section-width + random-float section-width)
+    let base-y (green-min-y + section-y * section-height + random-float section-height)
+    
+    let units-in-section elite-per-section
+    if section-idx < elite-extra [ set units-in-section units-in-section + 1 ]
+    
+    repeat units-in-section [
+      create-arg-elites 1 [
+        set unit-type "arg-elite"
+        set color cyan
+        set size 1.5
+        set mobility 0.0   ;; static
+        set lethality 0.12
+        set aggression 0.05
+        set detection-range 0  ;; not used for static units
+        set engagement-distance 1.8
+        set max-accuracy-distance 1.0
+        set health 1.0
+        set invulnerability 0.25
+        set immovable? true
+        ;; add some jitter around section center
+        setxy (base-x + random-float 2 - 1) (base-y + random-float 2 - 1)
+      ]
+    ]
+    set section-idx section-idx + 1
+  ]
+end
+
+;; behavior helpers ----------------------------------------------------------
+
+to move-ground-unit
+  ;; check if unit should die due to low health
+  if health < health-threshold [
+    ifelse (breed = regular-infantries or breed = royal-marines or breed = special-forces) [
+      set british-casualties british-casualties + 1
+    ] [
+      set argentine-casualties argentine-casualties + 1
+    ]
+    die
+  ]
+  
+  ;; Argentine units don't move
+  if immovable? [ stop ]
+  
+  ;; British units: find closest Argentine target WITHIN BOUNDS AND TO THE LEFT
+  let all-targets (turtle-set conscripts arg-elites) with [
+    xcor >= min-pxcor and xcor <= max-pxcor and 
+    ycor >= min-pycor and ycor <= max-pycor and
+    xcor < [xcor] of myself  ;; only targets to the left
+  ]
+  
+  let target min-one-of all-targets [distance myself]
+  
+  if target != nobody [
+    let dist distance target
+    
+    ;; calculate where we would move based on engagement rules
+    let move-distance 0
+    ifelse dist > engagement-distance [
+      ;; too far: close in
+      set move-distance mobility * 0.15
+    ] [
+      ifelse dist > max-accuracy-distance [
+        ;; within engagement but not optimal accuracy: slow approach
+        set move-distance mobility * 0.05
+      ] [
+        ;; at optimal accuracy: hold position
+        set move-distance 0
+      ]
+    ]
+    
+    ;; move towards target, but respect bounds
+    if move-distance > 0 [
+      let target-heading towards target
+      let new-x xcor + move-distance * sin target-heading
+      let new-y ycor + move-distance * cos target-heading
+      
+      ;; clamp to bounds
+      if new-x < min-pxcor [ set new-x min-pxcor ]
+      if new-x > max-pxcor [ set new-x max-pxcor ]
+      if new-y < min-pycor [ set new-y min-pycor ]
+      if new-y > max-pycor [ set new-y max-pycor ]
+      
+      setxy new-x new-y
+    ]
+  ]
+end
+
+;; combat resolution --------------------------------------------------------
+
+to ground-combat
+  ;; british units attack nearby argentine units
+  ask regular-infantries [
+    let enemy min-one-of (turtle-set conscripts arg-elites) [distance myself]
+    if enemy != nobody and distance enemy <= engagement-distance [
+      ;; within engagement distance
+      let dist distance enemy
+      let accuracy-factor ifelse-value (dist <= max-accuracy-distance) [1] [max-accuracy-distance / dist]
+      let kill-prob lethality * (1 + aggression) * accuracy-factor * (1 - [invulnerability] of enemy)
+      if random-float 1 < kill-prob [
+        ask enemy [
+          set health health - 0.3
+          if health < health-threshold [
+            set argentine-casualties argentine-casualties + 1
+            die
+          ]
+        ]
+      ]
+    ]
+  ]
+  
+  ask royal-marines [
+    let enemy min-one-of (turtle-set arg-elites) [distance myself]  ;; only target elites
+    if enemy != nobody and distance enemy <= engagement-distance [
+      let dist distance enemy
+      let accuracy-factor ifelse-value (dist <= max-accuracy-distance) [1] [max-accuracy-distance / dist]
+      let kill-prob (lethality + 0.02) * (1 + aggression) * accuracy-factor * (1 - [invulnerability] of enemy)
+      if random-float 1 < kill-prob [
+        ask enemy [
+          set health health - 0.3
+          if health < health-threshold [
+            set argentine-casualties argentine-casualties + 1
+            die
+          ]
+        ]
+      ]
+    ]
+  ]
+  
+  ask special-forces [
+    let enemy min-one-of (turtle-set arg-elites) [distance myself]  ;; only target elites
+    if enemy != nobody and distance enemy <= engagement-distance [
+      let dist distance enemy
+      let accuracy-factor ifelse-value (dist <= max-accuracy-distance) [1] [max-accuracy-distance / dist]
+      let kill-prob (lethality + 0.04) * (1 + aggression) * accuracy-factor * (1 - [invulnerability] of enemy)
+      if random-float 1 < kill-prob [
+        ask enemy [
+          set health health - 0.3
+          if health < health-threshold [
+            set argentine-casualties argentine-casualties + 1
+            die
+          ]
+        ]
+      ]
+    ]
+  ]
+  
+  ;; Argentine units counterattack
+  ask conscripts [
+    let enemy min-one-of (turtle-set regular-infantries royal-marines special-forces) [distance myself]
+    if enemy != nobody and distance enemy <= engagement-distance [
+      let dist distance enemy
+      let accuracy-factor ifelse-value (dist <= max-accuracy-distance) [1] [max-accuracy-distance / dist]
+      let kill-prob lethality * accuracy-factor * (1 - [invulnerability] of enemy)
+      if random-float 1 < kill-prob [
+        ask enemy [
+          set health health - 0.2
+          if health < health-threshold [
+            set british-casualties british-casualties + 1
+            die
+          ]
+        ]
+      ]
+    ]
+  ]
+  
+  ask arg-elites [
+    let enemy min-one-of (turtle-set regular-infantries royal-marines special-forces) [distance myself]
+    if enemy != nobody and distance enemy <= engagement-distance [
+      let dist distance enemy
+      let accuracy-factor ifelse-value (dist <= max-accuracy-distance) [1] [max-accuracy-distance / dist]
+      let kill-prob (lethality + 0.015) * accuracy-factor * (1 - [invulnerability] of enemy)
+      if random-float 1 < kill-prob [
+        ask enemy [
+          set health health - 0.25
+          if health < health-threshold [
+            set british-casualties british-casualties + 1
+            die
+          ]
+        ]
+      ]
+    ]
+  ]
+end
+
+;; stub placeholder (called by main but not used now)
+
+to defenses-attack-ships
+  ;; placeholder - no defenses in this model
+end
+
+;; stub placeholder (called by main but not used now)
+
+to spawn-special-reinforcements?
+  ;; placeholder - no reinforcements in this model
+end
+
+;; end of ground_model.nls
