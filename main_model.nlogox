@@ -44,7 +44,7 @@ breed [ frigates frigate ]
 breed [ destroyers destroyer ]
 breed [ amphibs amphib ]
 ;; all turtles have these variables (really coarse-grained inheritance)
-turtles-own [ state speed ]
+turtles-own [ strength state speed ]
 
 ;; only breeds have these variables
 daggers-own [ bombs launch aircraft ]  
