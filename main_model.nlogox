@@ -5,7 +5,7 @@
   "turtles/shars/shar_model.nls" 
   "turtles/carriers/carrier_model.nls"  
 ]
-
+;hi
 globals [ 
   ocean-color ocean-offset
   
