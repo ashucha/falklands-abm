@@ -1,4 +1,4 @@
-shars-own [ mission base-carrier fuel missiles objx objy cued-target ]
+shars-own [ num-flight mission base-carrier fuel missiles objx objy cued-target ]
 
 ;; this sets the constants for the shars
 to setup-shars
@@ -13,6 +13,9 @@ to setup-shars
   ;; ranges
   set shar-vis-range nmi-to-patches 6 ;; 6nmi -> units: patches
   set aim9l-range    nmi-to-patches 1 ;; 1nmi -> units: patches
+  
+  ;; probabilities
+  set aim9l-pkill 0.7273
 end
 
 ;; this is the loop for the shars. I'll put this in a separate file...at some point
@@ -75,10 +78,10 @@ to move-shars
     ]
     if state = "engage" [
       set speed "frozen"
-      set missiles missiles - 1
       if target-dagger != nobody [ 
         move-to target-dagger
-        ask target-dagger [ die ] ;; shar triggers the destruction of the attack formation
+        show try-faa-kill ;; attempt to kill FAA jets, display the result to the terminal
+        ask target-dagger [ set state "egress" ]
         set intercepts intercepts + 1 
         if mission = "cap" [ set state "transit" ]
         if mission = "alert" [ set state "rtb" ]
@@ -142,4 +145,15 @@ to-report is-bingo?
   let bingo-threshold fuel-needed * safety-buffer
   
   report fuel <= bingo-threshold
+end
+  
+;; Launch AIM9L, see if it got a kill, report the number of kills, up to 2
+to-report try-faa-kill 
+  let kills 0
+  repeat num-flight [
+    set missiles missiles - 1
+    if RNG aim9l-pkill [ set kills kills + 1 ] 
+  ]
+  set faa-jets faa-jets - kills
+  report kills
 end

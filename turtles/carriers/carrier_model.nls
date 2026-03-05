@@ -46,6 +46,7 @@ to launch-shars [ num ms obj-xy ]
     set size 2
     set color 102 + random-float 3 ;; I wanted all the shars to be unique colors to distinguish them, but also all blue
     set base-carrier [ name ] of myself
+    set num-flight 2
     ask myself [ set shar-count shar-count - 2 * num ] ;; harriers fly in pairs
     set fuel 830 ;; imp gal
     set missiles 2
@@ -66,6 +67,7 @@ to launch-alert-shars [ tgt ]
   let target tgt
   
   hatch-shars 1 [
+    set num-flight 2
     ask myself [ set shar-count shar-count - 2 ] ;; harriers fly in pairs
     set shape "shar-pair" 
     set size 2
