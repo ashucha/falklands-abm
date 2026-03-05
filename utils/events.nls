@@ -1,0 +1,54 @@
+events-own [ name day month done? ]
+
+to setup-events
+  create-events 1 [
+    ;; May 18: 8x shars arrive, 4x to Hermes, 4x to Invincible
+    set day   18
+    set month 5
+    set done? false
+    set name "shar reinforcements"
+  ]
+  
+  create-events 1 [
+    ;; May 6: 2 shars crash
+    set day 6
+    set month 5
+    set done? false
+    set name "shar crash"
+  ]
+  
+  create-events 1 [
+    ;; May 4: 1x shar lost to AAA
+    set day 4 
+    set month 5
+    set done? false
+    set name "shar lost: AAA"
+  ]
+  
+end
+
+to check-events
+  ask events [
+    if not done? and cur-day = day and cur-month = month [
+      do-event name 
+    ]
+  ]
+end
+
+to do-event [ n ]
+  if n = "shar reinforcements" [
+    ask carriers [ set shar-count shar-count + 4 ]
+    set done? true
+    show "8x SHAR reinforcements"
+  ]
+  if n = "shar crash" [
+    ask one-of shars [ die ]
+    set done? true
+    show "2x SHARs crashed"
+  ]
+  if n = "shar lost: AAA" [
+    ask one-of shars [ set num-flight num-flight - 1 ]
+    set done? true
+    show "1x SHARs lost to AAA"
+  ]
+end

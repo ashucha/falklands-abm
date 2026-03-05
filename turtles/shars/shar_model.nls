@@ -1,4 +1,23 @@
-shars-own [ mission base-carrier fuel missiles objx objy vis_range aim9l_range ]
+shars-own [ num-flight mission base-carrier fuel missiles objx objy cued-target ]
+
+;; this sets the constants for the shars
+to setup-shars
+  let mi-per-patch km-to-miles km-per-patch
+  set shar-cruise-speed 7.7 * minutes-per-tick / mi-per-patch ;; 460/60=7.7mph   -> units: patches per tick
+  set shar-max-speed  12.15 * minutes-per-tick / mi-per-patch ;; 730/60=12.15mph -> units: patches per tick
+  
+  ;; fuel burn
+  set shar-cruise-burn  9.2 * minutes-per-tick ;; 553/60=9.2 imp gal/min     -> units: fuel per tick
+  set shar-max-burn   27.65 * minutes-per-tick ;; 1660/60=27.65  imp gal/min -> units: fuel per tick
+  
+  ;; ranges
+  set shar-vis-range nmi-to-patches 6 ;; 6nmi -> units: patches
+  set aim9l-range    nmi-to-patches 1 ;; 1nmi -> units: patches
+  
+  ;; probabilities
+  set aim9l-pkill 0.7273
+  
+end
 
 ;; this is the loop for the shars. I'll put this in a separate file...at some point
 to move-shars
@@ -6,19 +25,18 @@ to move-shars
     ;; get stimuli
     let bc base-carrier
     let my-carrier one-of carriers with [name = bc]
-    let target-dagger contact-daggers?;;min-one-of daggers [ distance myself ]
+    let target-dagger contact-daggers? shar-vis-range;;min-one-of daggers [ distance myself ]
     
     ;; logic: decisions and actions, depends on state. Order matters here. 
     ;;        I couldn't decide between a chain of if statements and nested if statements.
-    if fuel < 100 [ 
-      set speed 0.5
+    if is-bingo? [ 
       set state "rtb" 
     ]
     if missiles <= 0 [ set state "rtb" ]
     if state = "transit" [ ;; protip! set all the pertinent state parameters at the start of the state logic. that way, you just have to set the state
-      set speed 0.5
+      set speed "cruise"
       facexy objx objy
-      if distance patch objx objy < (1.5 * speed) [ ;; check to see if the shar reached its CAP, multiplier prevents glitching
+      if distance patch objx objy < (1.5 * shar-cruise-speed) [ ;; check to see if the shar reached its CAP, multiplier prevents glitching
         set state "loiter" ;; protip (cont...): like so
       ]
       if target-dagger != nobody [
@@ -26,73 +44,118 @@ to move-shars
       ]
     ]
     if state = "loiter" [
-      rt 10 ;; orbit CAP upon arrival
-      set speed 0.5
+      ;rt 5 * km-per-patch;; orbit CAP upon arrival
+      ;set speed "cruise"
+      set speed "frozen"
+      setxy objx objy
       if target-dagger != nobody [ ;; I had to keep checking for nobody because it kept throwing errors
         set state "intercept"
-        set speed 1
         face target-dagger
       ]
     ]
     if state = "intercept" [
-      set speed 1
-      ifelse target-dagger != nobody [
-        if distance target-dagger < speed [ ;; aka both turtles occupy the same patch
+      set speed "max"
+      ifelse target-dagger != nobody [ ;; if I don't see anyone
+        if distance target-dagger < shar-max-speed [ ;; aka both turtles occupy the same patch
           set state "engage" 
           ask target-dagger [ set state "engage" ]
         ]
         ifelse target-dagger != nobody [ 
           let leading-patch [ patch-ahead 2 ] of target-dagger ;; aiming a little ahead the daggers for faster intercept
-          face leading-patch
+          if leading-patch != nobody [ face leading-patch ]
         ] [ 
           if mission = "cap" [ set state "transit" ]
           if mission = "strike" [ set state "strike" ]
+          if mission = "alert" [ set state "rtb" ]
         ]
       ] [ 
-        if mission = "cap" [ set state "transit" ]
-        if mission = "strike" [ set state "strike" ]
+        ifelse cued-target != nobody [ ;; if I have a radar cue
+          face cued-target
+        ] [ ;; if I don't see anyone and I have no radar cues
+          if mission = "cap" [ set state "transit" ]
+          if mission = "strike" [ set state "strike" ]
+          if mission = "alert" [ set state "rtb" ]
+        ]
       ]
     ]
     if state = "engage" [
-      move-to target-dagger
-      set speed 0
-      set missiles missiles - 1
+      set speed "frozen"
       if target-dagger != nobody [ 
-        ask target-dagger [ die ] ;; shar triggers the destruction of the attack formation
+        move-to target-dagger
+        show try-faa-kill ;; attempt to kill FAA jets, display the result to the terminal
+        ask target-dagger [ set state "egress" ]
         set intercepts intercepts + 1 
-        set state "transit"
+        if mission = "cap" [ set state "transit" ]
+        if mission = "alert" [ set state "rtb" ]
       ]
     ]
     if state = "strike" [
-      set speed 1
+      set speed "cruise"
       facexy objx objy
-      if distance patch objx objy < (1.5 * speed) [ ;; check to see if the shar reached its target, multiplier prevents glitching
+      if distance patch objx objy < (1.5 * shar-max-speed) [ ;; check to see if the shar reached its target, multiplier prevents glitching
         ask patch objx objy [ set pcolor ocean-color + random-float ocean-offset ]
         set state "rtb" ;; protip (cont...): like sof
       ]
     ]
     if state = "rtb" [
-      set speed 0.5
+      set speed "cruise"
       face my-carrier
-      if distance my-carrier < speed [ ;; refuel!
+      if distance my-carrier < shar-cruise-speed [ 
         move-to my-carrier
         if mission = "strike" [
           ask my-carrier [ set striking? false ]
         ]
+        if mission = "alert" [
+          ask my-carrier [ set alert-avail? true ]
+        ]
+        ask my-carrier [ set shar-count shar-count + [num-flight] of myself ]
         die ;; "land and disappear"
       ]
     ]
     
-    set fuel fuel - 1
-    forward speed ;; don't forget to make the agents move!
+    if speed = "cruise" [
+      set fuel fuel - shar-cruise-burn
+      forward shar-cruise-speed ;; don't forget to make the agents move!
+    ] 
+    if speed = "max" [
+      set fuel fuel - shar-max-burn
+      forward shar-max-speed
+    ]
+    if state = "loiter" [ set fuel fuel - shar-cruise-burn ]
+    if state = "engage" [ set fuel fuel - shar-max-burn ]
+    
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
-      if stat? = "fuel" [ set label fuel ]
-      if stat? = "missiles" [ set label missiles ]
-      if stat? = "state" [ set label state ]
+      if shar-stat? = "fuel"     [ set label fuel ]
+      if shar-stat? = "missiles" [ set label missiles ]
+      if shar-stat? = "state"    [ set label state ]
+      if shar-stat? = "mission"  [ set label mission ]
     ] [ set label "" ]
     
     ;; set new state 
   ]
+end
+
+;; Returns true if the shar is at bingo fuel and must rtb
+to-report is-bingo?
+  let bc base-carrier
+  let my-carrier one-of carriers with [name = bc]
+  let dist-patches distance my-carrier
+  let fuel-needed dist-patches / shar-cruise-speed * shar-cruise-burn
+  let safety-buffer 1.10
+  let bingo-threshold fuel-needed * safety-buffer
+  
+  report fuel <= bingo-threshold
+end
+  
+;; Launch AIM9L, see if it got a kill, report the number of kills, up to 2
+to-report try-faa-kill 
+  let kills 0
+  repeat num-flight [
+    set missiles missiles - 1
+    if RNG aim9l-pkill [ set kills kills + 1 ] 
+  ]
+  set faa-jets faa-jets - kills
+  report kills
 end
