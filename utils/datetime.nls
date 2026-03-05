@@ -1,3 +1,4 @@
+;; These functions are used for doing date calculations so we can track # of days and current date
 to advance-time [ m ]
   set cur-min cur-min + m
   
