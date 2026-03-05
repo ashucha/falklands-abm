@@ -108,7 +108,7 @@ to move-shars
         if mission = "alert" [
           ask my-carrier [ set alert-avail? true ]
         ]
-        ask my-carrier [ set shar-count shar-count + 2 ]
+        ask my-carrier [ set shar-count shar-count + num-flight ]
         die ;; "land and disappear"
       ]
     ]
