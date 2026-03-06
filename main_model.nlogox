@@ -39,6 +39,7 @@ globals [
 breed [ carriers carrier ]
 breed [ shars shar ]
 breed [ daggers dagger ]
+breed [ frigates frigate ]
 breed [ events event ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
@@ -78,6 +79,7 @@ to setup
   ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
   
   setup-carriers
+  setup-frigates
   setup-shars
   
   setup-frigates
@@ -93,11 +95,13 @@ to go
   update-date-string
   check-events
   move-carriers
+  move-frigates
   move-shars
   move-daggers
   spawn-dagger?
-  ;spawn-target?
+  spawn-target?
   ask carriers [ spawn-shars? ]
+  ask frigates [ execute-logic ]
   tick
 end
 
