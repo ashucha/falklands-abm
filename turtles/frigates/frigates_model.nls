@@ -1,0 +1,108 @@
+frigates-own [ name new-heading turn-rate radar-range gun-range sam-range]
+
+to setup-frigates 
+  create-frigates 2 [  
+    set shape "default" ;; determines the icon to display the turtle
+    set name "type_22"
+    set speed 0.04
+    set state "straight"
+    set radar-range 30
+    set gun-range 2
+    set sam-range 5000
+    set turn-rate 0.5
+    set size 2
+    set color green
+    setxy random-xcor random-ycor 
+  ]
+  
+  create-frigates 6 [ 
+    set shape "default" ;; determines the icon to display the turtle
+    set name "type_21"
+    set speed 0.04
+    set state "straight"
+    set radar-range 20
+    set gun-range 15
+    set sam-range 30
+    set turn-rate 0.5
+    set size 2
+    set color green
+    setxy random-xcor random-ycor 
+  ]
+end
+
+to move-frigates
+  ask patches with [pcolor = yellow] [
+    ;; Find the carrier closest to this yellow patch
+    let nearest-frigate min-one-of carriers [distance myself]
+    
+    let target-x pxcor
+    let target-y pycor
+      ]
+  
+  ask frigates [
+    ifelse state = "turning" [
+      let delta subtract-headings new-heading heading
+      ifelse abs (delta) > turn-rate [ ;; need to keep turning
+        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+      ] [
+        set state "straight"
+      ]
+    ] [
+      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
+      if ticks mod 500 = 0 [
+        if random 100 > 30 [ 
+          set new-heading new-heading + 45 - random 90
+          set state "turning"
+        ]
+      ]
+    ]
+    forward speed
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ]
+  ]
+end
+
+to execute-logic
+  ask frigates [
+    ifelse any? daggers in-radius radar-range [
+    threat-response] [scan-and-respond]
+  ]
+end
+
+
+to scan-and-respond 
+  ask frigates [ 
+    let lead-carrier min-one-of carriers [distance myself]
+    if distance lead-carrier > 10 [
+      face lead-carrier
+      forward speed
+    ]
+ ]
+end
+
+to threat-response
+ask frigates [
+  if any? daggers in-radius radar-range [
+    let target-dagger min-one-of daggers [distance myself]
+    let closest-shar min-one-of shars [distance myself]
+      ifelse [ask closest-shar "mission" = striking?
+        ask myself [ if any? daggers in-radius sam-range
+        [ execute-sam-launch target-dagger ]
+      ]
+    ]
+  ]
+end
+
+to execute-sam-launch [ target-dagger ]
+  let p-hit 30
+  let p-kill 100
+
+  if (random 100 < p-hit) [
+    if (random 100 < p-kill) [
+      ask target-dagger [ die ]
+    ]
+  ]
+end

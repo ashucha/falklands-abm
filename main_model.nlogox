@@ -3,7 +3,8 @@
   <code><![CDATA[__includes [ 
   "utils/datetime.nls"
   "turtles/shars/shar_model.nls" 
-  "turtles/carriers/carrier_model.nls"  
+  "turtles/carriers/carrier_model.nls" 
+  "turtles/frigates/frigates_model.nls"
 ]
 ;hi
 globals [ 
@@ -24,11 +25,13 @@ globals [
 breed [ carriers carrier ]
 breed [ shars shar ]
 breed [ daggers dagger ]
+breed [ frigates frigate ]
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ state speed ]
 
 ;; only breeds have these variables
-daggers-own [ bombs launch ]
+daggers-own [ bombs launch ]  
+  
 
 ;; initializes everything
 to setup
@@ -52,6 +55,8 @@ to setup
   ask patches [ set pcolor ocean-color + random-float ocean-offset ]
   
   setup-carriers
+  
+  setup-frigates
   
   reset-ticks
 end
@@ -78,11 +83,13 @@ to go
   advance-time minutes-per-tick
   update-date-string
   move-carriers
+  move-frigates
   move-shars
   move-daggers
   spawn-dagger?
   spawn-target?
   ask carriers [ spawn-shars? ]
+  ask frigates [ execute-logic ]
   tick
 end
 
@@ -140,7 +147,7 @@ to spawn-target?
   ]
 end]]></code>
   <widgets>
-    <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
+    <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-50" height="1320" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="1320" tickCounterLabel="ticks" maxPycor="50" updateMode="1" maxPxcor="50" minPxcor="-50"></view>
     <button x="70" y="5" height="40" disableUntilTicks="true" forever="true" kind="Observer" width="55">go</button>
     <monitor x="130" precision="1" y="5" height="60" units="aircraft" fontSize="11" width="100" display="Fueled SHARs"><![CDATA[count shars with [ fuel > 100 ]]]></monitor>
     <slider x="5" step="1" y="70" max="100" width="250" display="minutes-per-tick" height="50" min="0" direction="Horizontal" default="2.0" variable="minutes-per-tick" units="min"></slider>
