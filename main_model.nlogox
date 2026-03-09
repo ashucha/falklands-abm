@@ -6,6 +6,7 @@
   "utils/events.nls"
   "turtles/shars/shar_model.nls" 
   "turtles/carriers/carrier_model.nls"  
+  "turtles/faa/faa_model.nls"
 ]
 
 globals [ 
@@ -30,18 +31,25 @@ globals [
   ;; constants for the carriers
   carrier-alert-dist
   shar-launch-int
+  
+  ;; constants for the FAA
+  dagger-max-speed dagger-cruise-speed dagger-range
+  skyhawk-max-speed skyhawk-cruise-speed skyhawk-range
+  sue-max-speed sue-cruise-speed sue-range
+  bomb-range exocet-range
+  
 ] 
 
 ;; setting up the types of turtles <plural name> <singular name>
 breed [ carriers carrier ]
 breed [ shars shar ]
 breed [ daggers dagger ]
+breed [ faas faa ]
 breed [ events event ]
+breed [ ships ship ] 
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
 
-;; only breeds have these variables
-daggers-own [ bombs launch aircraft ]
 
 ;; initializes everything
 to setup
@@ -96,24 +104,65 @@ to-report RNG [ p ]
   ifelse random-float 1.0 < probability [ report true ][ report false ]
 end
 
-to launch-daggers
+to launch-faa
+  if faa-jets <= 0 [ stop ]
+
   set attacks attacks + 1
-  create-daggers 1 [
-    set shape "dagger-5"
+
+  create-faas 1 [
     set size 4
     set color 13 + random-float 3
-    let n 3 + random 2
-    set aircraft n-values n [ "strike" ]
-    ifelse random 2 > 1 [ ;; spawn daggers only on the edge of the world, not in the middle, spawn top
-      ;set launch (list (random-float (max-pxcor - min-pxcor) + min-pxcor) max-pycor)
-      set launch (list (50 - random 50) max-pycor)
-    ] [ ;; spawn right
-      ;set launch (list max-pxcor (random-float (max-pycor - min-pycor) + min-pycor))
-      set launch (list min-pxcor (50 - random 100))
+
+    let r random-float 1.0
+    ifelse r < 0.5 [
+      ;; dagger
+      set aircraft-type "dagger"
+      set shape "dagger-5"
+      set num-flight 2
+      set max-speed dagger-max-speed
+      set cruise-speed dagger-cruise-speed
+      set range-left dagger-range
+      set weapons num-flight
+      set weapon-range bomb-range
+    ] [
+      ifelse r < 0.9 [
+        ;; skyhawk
+        set aircraft-type "skyhawk"
+        set shape "airplane"
+        set num-flight 4
+        set max-speed skyhawk-max-speed
+        set cruise-speed skyhawk-cruise-speed
+        set range-left skyhawk-range
+        set weapons num-flight
+        set weapon-range bomb-range
+      ] [
+        ;; sue
+        set aircraft-type "sue"
+        set shape "airplane"
+        set num-flight 2
+        set max-speed sue-max-speed
+        set cruise-speed sue-cruise-speed
+        set range-left sue-range
+        set weapons num-flight
+        set weapon-range exocet-range
+      ]
     ]
-    setxy (item 0 launch) (item 1 launch)
-    set state "ingress"
-    set speed 1.1
+
+    set spawn-x min-pxcor
+    set spawn-y random-ycor
+    setxy spawn-x spawn-y
+
+    let nearest-carrier min-one-of carriers [ distance myself ]
+    if nearest-carrier != nobody [
+      set objx [xcor] of nearest-carrier
+      set objy [ycor] of nearest-carrier
+    ]
+
+    set state "transit"
+    set speed cruise-speed
+
+    set faa-jets faa-jets - num-flight
+    if faa-jets < 0 [ set faa-jets 0 ]
   ]
 end
 

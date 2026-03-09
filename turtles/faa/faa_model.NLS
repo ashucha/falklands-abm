@@ -14,19 +14,6 @@ faas-own [
   spawn-y
 ]
 
-globals [
-  dagger-max-speed
-  dagger-cruise-speed
-  dagger-range
-  skyhawk-max-speed
-  skyhawk-cruise-speed
-  skyhawk-range
-  sue-max-speed
-  sue-cruise-speed
-  sue-range
-  bomb-range
-  exocet-range
-]
 
 to spawn-faa
   create-faas 1 [
