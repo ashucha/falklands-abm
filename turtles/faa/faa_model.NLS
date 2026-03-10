@@ -1,13 +1,12 @@
 faas-own [
   aircraft-type   ;; "dagger" "skyhawk" "sue"
   num-flight      ;; number of aircraft in the formation
-  range-left      ;; remaining range the formation can still fly
+;;  range-left      ;; remaining range the formation can still fly
   weapons         ;; number of weapons loadout in entire formation
   weapon-range    ;; distance aircraft can attack from
   max-speed       ;; max speed of aircraft type
   cruise-speed    ;; cruise speed of aircraft type
   det-range       ;; detection range for shars
-;;  state           ;; "transit" "attack" "reattack" "egress" "rtb"
   objx            ;; task force x 
   objy            ;; task force y
   spawn-x
@@ -15,13 +14,15 @@ faas-own [
 ]
 
 
-to spawn-faa
-  create-faas 1 [
-    set spawn-x min-pxcor
-    set spawn-y random-ycor
-    setxy spawn-x spawn-y
-  ]
-end
+;;to spawn-faa
+;;  create-faas 1 [
+;;   set spawn-x min-pxcor
+;;    set spawn-y random-ycor
+;;   setxy spawn-x spawn-y
+    
+;;    set state "transit"
+;;  ]
+;; end
 
 
 ;; this sets the constants for the shars
@@ -53,7 +54,6 @@ to setup-faa
     if aircraft-type = "dagger" [
       set max-speed dagger-max-speed
       set cruise-speed dagger-cruise-speed
-      set range-left dagger-range
       set num-flight 2
       set weapons num-flight * 2
       set weapon-range bomb-range
@@ -63,7 +63,6 @@ to setup-faa
     if aircraft-type = "skyhawk" [
       set max-speed skyhawk-max-speed
       set cruise-speed skyhawk-cruise-speed
-      set range-left skyhawk-range
       set num-flight 4
       set weapons num-flight * 2
       set weapon-range bomb-range
@@ -73,7 +72,6 @@ to setup-faa
     if aircraft-type = "sue" [
       set max-speed sue-max-speed
       set cruise-speed sue-cruise-speed
-      set range-left sue-range
       set num-flight 2
       set weapons num-flight * 1
       set weapon-range exocet-range

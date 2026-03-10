@@ -111,39 +111,38 @@ to launch-faa
 
   create-faas 1 [
     set size 4
-    set color 13 + random-float 3
 
     let r random-float 1.0
     ifelse r < 0.5 [
       ;; dagger
       set aircraft-type "dagger"
       set shape "dagger-5"
+      set color red
       set num-flight 2
       set max-speed dagger-max-speed
       set cruise-speed dagger-cruise-speed
-      set range-left dagger-range
-      set weapons num-flight
+      set weapons num-flight * 2
       set weapon-range bomb-range
     ] [
       ifelse r < 0.9 [
         ;; skyhawk
         set aircraft-type "skyhawk"
         set shape "airplane"
+        set color green
         set num-flight 4
         set max-speed skyhawk-max-speed
         set cruise-speed skyhawk-cruise-speed
-        set range-left skyhawk-range
-        set weapons num-flight
+        set weapons num-flight * 2
         set weapon-range bomb-range
       ] [
         ;; sue
         set aircraft-type "sue"
         set shape "airplane"
+        set color black
         set num-flight 2
         set max-speed sue-max-speed
         set cruise-speed sue-cruise-speed
-        set range-left sue-range
-        set weapons num-flight
+        set weapons num-flight * 2
         set weapon-range exocet-range
       ]
     ]
@@ -170,6 +169,7 @@ to move-faas
   ask faas [
     ;; type-based eastward mission limit
     let x-limit 0
+    
     if aircraft-type = "skyhawk" [
       set x-limit min-pxcor + 0.60 * (max-pxcor - min-pxcor)
     ]
@@ -185,68 +185,70 @@ to move-faas
       set speed cruise-speed
       facexy objx objy
 
-      ;; aircraft cannot penetrate beyond their type's limit
-      if xcor >= x-limit [
+      ;; if aircraft reaches its eastward limit, abort and return home
+      ifelse xcor >= x-limit [
         set state "rtb"
+      ] [
+        ;; otherwise, attack once within weapon release range
+        if distancexy objx objy <= weapon-range [
+          set state "attack"
+        ]
       ]
+    ]
 
       ;; attack once within release range
       if distancexy objx objy <= weapon-range [
         set state "attack"
       ]
-    ]
-
+    
     ;; attack phase
     if state = "attack" [
       set speed 0
 
-      ;; Harriers only affect FAA during attack
+      ;; drop weapons on ships/carriers within weapon range
+      ;; (attack occurs before Harrier interception)
+      if aircraft-type = "sue" [
+        let target-carriers carriers in-radius weapon-range
+        let carrier-shots min (list weapons count target-carriers)
+
+        repeat carrier-shots [
+          let target one-of target-carriers
+          ask target [ die ]
+          set weapons weapons - 1
+          set target-carriers target-carriers with [ self != target ]
+        ]
+      ]
+
+      ;; all FAA aircraft can attack ships
+      let target-ships ships in-radius weapon-range
+      let ship-shots min (list weapons count target-ships)
+
+      repeat ship-shots [
+        let target one-of target-ships
+        ask target [ die ]
+        set weapons weapons - 1
+        set target-ships target-ships with [ self != target ]
+      ]
+
+      ;; Harriers can intercept FAA during or after the attack run
       if any? shars in-radius det-range [
         if RNG aim9l-pkill [
           set num-flight num-flight - 1
           if num-flight <= 0 [ die ]
         ]
-        set state "egress"
       ]
 
-      ;; if still attacking, prosecute targets
-      if state = "attack" [
-        ;; SUEs can attack carriers first, then ships
+      ;; after completing the attack pass, leave the area
+      if weapons > 0 [
         if aircraft-type = "sue" [
-          let target-carriers carriers in-radius weapon-range
-          let carrier-shots min (list weapons count target-carriers)
-
-          repeat carrier-shots [
-            let target one-of target-carriers
-            ask target [ die ]
-            set weapons weapons - 1
-            set target-carriers target-carriers with [ self != target ]
-          ]
-        ]
-
-        ;; all FAA aircraft can attack ships
-        let target-ships ships in-radius weapon-range
-        let ship-shots min (list weapons count target-ships)
-
-        repeat ship-shots [
-          let target one-of target-ships
-          ask target [ die ]
-          set weapons weapons - 1
-          set target-ships target-ships with [ self != target ]
-        ]
-
-        ;; after one pass, leave the area
-        if weapons > 0 [
-          if aircraft-type = "sue" [
-            set state "rtb"
-          ]
-          if aircraft-type != "sue" [
-            set state "egress"
-          ]
-        ]
-        if weapons <= 0 [
           set state "rtb"
         ]
+        if aircraft-type != "sue" [
+          set state "egress"
+        ]
+      ]
+      if weapons <= 0 [
+        set state "rtb"
       ]
     ]
 
@@ -255,12 +257,14 @@ to move-faas
       set speed cruise-speed
       facexy objx objy
 
-      if xcor >= x-limit [
+      ;; if aircraft reaches its eastward limit, abort and return home
+      ifelse xcor >= x-limit [
         set state "rtb"
-      ]
-
-      if distancexy objx objy <= weapon-range [
-        set state "attack"
+      ] [
+        ;; otherwise, attack again once within weapon release range
+        if distancexy objx objy <= weapon-range [
+          set state "attack"
+        ]
       ]
     ]
 
@@ -272,12 +276,7 @@ to move-faas
 
       if distancexy objx objy > weapon-range * 2 [
         if weapons > 0 [
-          if aircraft-type = "sue" [
-            set state "rtb"
-          ]
-          if aircraft-type != "sue" [
-            set state "reattack"
-          ]
+          set state "rtb"
         ]
         if weapons <= 0 [
           set state "rtb"
