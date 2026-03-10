@@ -91,9 +91,8 @@ to go
   check-events
   move-carriers
   move-shars
-  move-daggers
-  spawn-dagger?
-  ;spawn-target?
+  move-faas
+  spawn-faa?
   ask carriers [ spawn-shars? ]
   tick
 end
@@ -166,59 +165,161 @@ to launch-faa
   ]
 end
 
-to move-daggers
-  ask daggers [
-    ;; get stimuli
-    let nearest-carrier min-one-of carriers [ distance myself ]
-    if state = "ingress" [ ;; make an attack run with a random heading
-      ;if distance nearest-carrier < 5 [ face nearest-carrier ]
-      face nearest-carrier
-      if distance nearest-carrier < speed [ ;; attack successful! attempt to return to the launch point
-        ;;move-to nearest-carrier
-        set failures failures + 1
+to move-faas
+  ask faas [
+    ;; type-based eastward mission limit
+    let x-limit 0
+    if aircraft-type = "skyhawk" [
+      set x-limit min-pxcor + 0.60 * (max-pxcor - min-pxcor)
+    ]
+    if aircraft-type = "dagger" [
+      set x-limit min-pxcor + 0.70 * (max-pxcor - min-pxcor)
+    ]
+    if aircraft-type = "sue" [
+      set x-limit min-pxcor + 0.80 * (max-pxcor - min-pxcor)
+    ]
+
+    ;; transit toward fixed objective
+    if state = "transit" [
+      set speed cruise-speed
+      facexy objx objy
+
+      ;; aircraft cannot penetrate beyond their type's limit
+      if xcor >= x-limit [
+        set state "rtb"
+      ]
+
+      ;; attack once within release range
+      if distancexy objx objy <= weapon-range [
+        set state "attack"
+      ]
+    ]
+
+    ;; attack phase
+    if state = "attack" [
+      set speed 0
+
+      ;; Harriers only affect FAA during attack
+      if any? shars in-radius det-range [
+        if RNG aim9l-pkill [
+          set num-flight num-flight - 1
+          if num-flight <= 0 [ die ]
+        ]
         set state "egress"
       ]
-    ]
-    if state = "engage" [ ;; note: both shars and daggers have an engagement state, gotta manage both sides of the engagement
-      set speed 0
-    ]
-    if state = "egress" [
-      face patch (item 0 launch) (item 1 launch)
-      if patch-here = patch (item 0 launch) (item 1 launch) [ ;; launch point reached, disappear by "landing"
-        die 
+
+      ;; if still attacking, prosecute targets
+      if state = "attack" [
+        ;; SUEs can attack carriers first, then ships
+        if aircraft-type = "sue" [
+          let target-carriers carriers in-radius weapon-range
+          let carrier-shots min (list weapons count target-carriers)
+
+          repeat carrier-shots [
+            let target one-of target-carriers
+            ask target [ die ]
+            set weapons weapons - 1
+            set target-carriers target-carriers with [ self != target ]
+          ]
+        ]
+
+        ;; all FAA aircraft can attack ships
+        let target-ships ships in-radius weapon-range
+        let ship-shots min (list weapons count target-ships)
+
+        repeat ship-shots [
+          let target one-of target-ships
+          ask target [ die ]
+          set weapons weapons - 1
+          set target-ships target-ships with [ self != target ]
+        ]
+
+        ;; after one pass, leave the area
+        if weapons > 0 [
+          if aircraft-type = "sue" [
+            set state "rtb"
+          ]
+          if aircraft-type != "sue" [
+            set state "egress"
+          ]
+        ]
+        if weapons <= 0 [
+          set state "rtb"
+        ]
       ]
     ]
-    
-    forward speed
-    
+
+    ;; reattack only for bomb-carrying aircraft
+    if state = "reattack" [
+      set speed cruise-speed
+      facexy objx objy
+
+      if xcor >= x-limit [
+        set state "rtb"
+      ]
+
+      if distancexy objx objy <= weapon-range [
+        set state "attack"
+      ]
+    ]
+
+    ;; leave target area, then decide whether to reattack or return home
+    if state = "egress" [
+      set speed max-speed
+      facexy objx objy
+      rt 180
+
+      if distancexy objx objy > weapon-range * 2 [
+        if weapons > 0 [
+          if aircraft-type = "sue" [
+            set state "rtb"
+          ]
+          if aircraft-type != "sue" [
+            set state "reattack"
+          ]
+        ]
+        if weapons <= 0 [
+          set state "rtb"
+        ]
+      ]
+    ]
+
+    ;; return to mainland spawn point
+    if state = "rtb" [
+      set speed cruise-speed
+      facexy spawn-x spawn-y
+
+      if distancexy spawn-x spawn-y < cruise-speed [
+        die
+      ]
+    ]
+
+    ;; movement
+    fd speed
+
     ;; UI stuff
     ifelse show-stat? [
       if shar-stat? = "state" [ set label state ]
-    ] [ set label "" ]
+    ] [
+      set label ""
+    ]
   ]
 end
 
-;; a reporter is just a procedure that returns a value
-to-report contact-daggers? [ dr ]
+;; a reporter that tells a shar whether there is an FAA formation in range
+to-report contact-faas? [ dr ]
   let detect-range dr
-  let nearest-dagger min-one-of daggers [ distance myself ]
-  if nearest-dagger != nobody [
-    if distance nearest-dagger < detect-range [ report nearest-dagger ]
+  let nearest-faa min-one-of faas [ distance myself ]
+  if nearest-faa != nobody [
+    if distance nearest-faa < detect-range [ report nearest-faa ]
   ]
   report nobody
 end
 
 ;; generates a new FAA attack formation every 100 ticks
-to spawn-dagger?
-  if (ticks + 50)  mod 100 = 0 [
-    launch-daggers
-  ]
-end 
-
-;; used to demo the shar airstrike functionality
-to spawn-target?
-  if ticks mod 33 = 0 [
-    ask patch random-xcor random-ycor [ set pcolor yellow ]
+to spawn-faa?
+  if (ticks + 50) mod 100 = 0 [
+    launch-faa
   ]
 end]]></code>
   <widgets>

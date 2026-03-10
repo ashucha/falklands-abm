@@ -106,7 +106,7 @@ end
 to move-carriers
   
   ask carriers [
-    let dagger-threat contact-daggers? carrier-alert-dist
+    let dagger-threat contact-faas? carrier-alert-dist
     if dagger-threat != nobody and shar-count > 2 and alert-avail? [
       launch-alert-shars dagger-threat
       set alert-avail? false
