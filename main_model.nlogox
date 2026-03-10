@@ -80,6 +80,7 @@ to setup
   
   setup-carriers
   setup-shars
+  setup-faa-constants
   
   reset-ticks
 end
