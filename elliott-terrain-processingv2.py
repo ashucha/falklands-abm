@@ -74,7 +74,7 @@ def main():
 
     print("Resampling DEM to 1 km grid...")
 
-    scale_factor = int(1000 / 30)
+    scale_factor = int(100 / 30)
 
     rows = terrain.shape[0] // scale_factor * scale_factor
     cols = terrain.shape[1] // scale_factor * scale_factor
