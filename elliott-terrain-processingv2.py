@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import rasterio
+import matplotlib.pyplot as plt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -95,7 +96,20 @@ def main():
     np.savetxt(csv_path, terrain_1km, delimiter=",", fmt="%d")
 
     print("Saved terrain grid to:", csv_path)
-    print("Falklands terrain pipeline complete.")
+
+
+    # -------- SAVE TERRAIN PNG --------
+
+    png_path = os.path.join(OUTPUT_DIR, "terrain_patch_map_v2.png")
+
+    plt.figure(figsize=(10,6))
+    plt.imshow(terrain_1km, cmap="terrain")
+    plt.colorbar(label="Terrain Code")
+    plt.title("East Falkland Terrain Map (1 km grid)")
+    plt.savefig(png_path, dpi=300)
+    plt.close()
+
+    print("Saved terrain preview to:", png_path)
 
 
 if __name__ == "__main__":
