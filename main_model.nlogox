@@ -40,6 +40,8 @@ breed [ carriers carrier ]
 breed [ shars shar ]
 breed [ daggers dagger ]
 breed [ frigates frigate ]
+breed [ destroyers destroyer ]
+breed [ amphships amphship ]
 breed [ events event ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
@@ -80,6 +82,8 @@ to setup
   
   setup-carriers
   setup-frigates
+  setup-destroyers
+  setup-amphships
   setup-shars
   
   setup-frigates
