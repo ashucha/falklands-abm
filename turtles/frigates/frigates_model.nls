@@ -4,7 +4,7 @@ to setup-frigates
   create-frigates 2 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_22"
-    set speed 0.04
+    set speed 0.037
     set state "straight"
     set radar-range 30
     set gun-range 2
@@ -100,7 +100,7 @@ to scan-and-respond
     if any? others [
       rt random 60
 ]
-    move-frigates
+;    move-frigates
   ]
 end
 

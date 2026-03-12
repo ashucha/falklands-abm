@@ -89,6 +89,7 @@ to go
   advance-time minutes-per-tick
   update-date-string
   move-carriers
+  move-frigates
   move-shars
   move-daggers
   spawn-dagger?
@@ -151,7 +152,8 @@ to spawn-target?
   if ticks mod 33 = 0 [
     ask patch random-xcor random-ycor [ set pcolor yellow ]
   ]
-end]]></code>
+end
+]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-50" height="1320" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="1320" tickCounterLabel="ticks" maxPycor="50" updateMode="1" maxPxcor="50" minPxcor="-50"></view>
     <button x="70" y="5" height="40" disableUntilTicks="true" forever="true" kind="Observer" width="55">go</button>
