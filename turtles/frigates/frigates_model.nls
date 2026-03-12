@@ -76,9 +76,11 @@ end
 to scan-and-respond 
   ask frigates [ 
     let lead-carrier min-one-of carriers [distance myself]
-    if distance lead-carrier > 10 [
+    ifelse distance lead-carrier > 18 [
       face lead-carrier
       forward speed
+    ][
+      ask frigates [move-frigates]
     ]
  ]
 end
@@ -88,12 +90,13 @@ ask frigates [
   if any? daggers in-radius radar-range [
     let target-dagger min-one-of daggers [distance myself]
     let closest-shar min-one-of shars [distance myself]
-      ifelse [ask closest-shar "mission" = striking?
+     ; ifelse [ask closest-shar "mission" = striking?
         ask myself [ if any? daggers in-radius sam-range
         [ execute-sam-launch target-dagger ]
+        ]
       ]
     ]
-  ]
+ ; ]
 end
 
 to execute-sam-launch [ target-dagger ]
