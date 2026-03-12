@@ -41,7 +41,7 @@ breed [ shars shar ]
 breed [ daggers dagger ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
-breed [ amphships amphship ]
+breed [ amphibs amphib ]
 breed [ events event ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
@@ -83,7 +83,7 @@ to setup
   setup-carriers
   setup-frigates
   setup-destroyers
-  setup-amphships
+  setup-amphibs
   setup-shars
   
   setup-frigates
@@ -105,6 +105,7 @@ to go
   spawn-target?
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
+  ask destroyers [ execute-logic-destroyer ]
   tick
 end
 

@@ -57,61 +57,41 @@ end
 to execute-logic-amphibs
   ask amphibs [
     ifelse any? daggers in-radius radar-range [
-    threat-response-destroyer] [scan-and-respond-destroyer]
+    threat-response-destroyer] [scan-and-respond-amphibs]
   ]
 end
 
 
 to scan-and-respond-amphibs
-  ask destroyers [ 
+  ask amphibs [ 
     let lead-carrier min-one-of carriers [distance myself]
     let d distance lead-carrier
 if d > 10 [
     set new-heading towards lead-carrier
     set state "turning"
   ]
-]
-    move-destroyers
-  ]
+] 
+if [troop-count] of amp > 0 and distance-to-beach amp < 2 
+
 end
 
-to threat-response-destroyer
-  let target-dagger min-one-of (daggers in-radius radar-range) [distance myself]
-  if target-dagger != nobody [
-    let closest-cap min-one-of (shars with [mission = "cap"]) [distance myself]
-    
-    ifelse closest-cap != nobody [
-      ask closest-cap [ face [target-dagger] of myself
-        set mission "intercept"
-      ]
-    ] ; [ 
-      ;let nearby-carrier min-one-of (carriers in-radius radar-range) [distance myself]
-      ;ifelse nearby-carrier != nobody and [alert-aircraft > 0] of nearby-carrier [
-        ;ask nearby-carrier [
-          ;launch-shar target-dagger 
-        ;]
-      ;] 
-  [
-        if distance target-dagger < sam-range [
-          let closest-shar min-one-of shars [distance myself]
-          ifelse closest-shar != nobody and distance closest-shar < mez-range [
-          ] [
-            execute-sam-launch-destroyer target-dagger
-          ]
-        ]
-      ]
+to-report distance-to-beach [distance myself]
+  let beach min-one-of patches with [is-beach?]
+  report distance beach
+end
+
+to launch-troops [amp]
+  if [troop-count] of amp > 0 and distance-to-beach amp < 2 [
+    let n min (list 5 [troop-count] of amp)   ;; spawn up to 5 per tick
+    create-troops n [
+      setxy [xcor] of amp [ycor] of amp
+      set speed 0.03
+      set mission "land"
+      set color red
     ]
-  ask destroyers [scan-and-respond-destroyer]
- ; ]
-end
-
-to execute-sam-launch-destroyer [ target-dagger ]
-  let p-hit 30
-  let p-kill 100
-
-  if (random 100 < p-hit) [
-    if (random 100 < p-kill) [
-      ask target-dagger [ die ]
+    ask amp [
+      set troop-count troop-count - n
     ]
   ]
 end
+
