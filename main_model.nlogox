@@ -5,6 +5,8 @@
   "turtles/shars/shar_model.nls" 
   "turtles/carriers/carrier_model.nls" 
   "turtles/frigates/frigates_model.nls"
+  "turtles/destroyers/destroyer_model.nls"
+  "turtles/amphibs/amphib_model.nls"
 ]
 ;hi
 globals [ 
@@ -27,7 +29,7 @@ breed [ shars shar ]
 breed [ daggers dagger ]
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
-breed [ amphships amphship ]
+breed [ amphibs amphib ]
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ state speed ]
 
@@ -60,7 +62,7 @@ to setup
   
   setup-frigates
   setup-destroyers
-  setup-amphships
+  setup-amphibs
   
   reset-ticks
 end
@@ -93,6 +95,7 @@ to go
   spawn-target?
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
+  ask destroyers [ execute-logic-destroyer ]
   tick
 end
 
