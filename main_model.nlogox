@@ -83,7 +83,6 @@ to go
   advance-time minutes-per-tick
   update-date-string
   move-carriers
-  move-frigates
   move-shars
   move-daggers
   spawn-dagger?

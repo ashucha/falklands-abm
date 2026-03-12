@@ -80,20 +80,27 @@ end
 to scan-and-respond 
   ask frigates [ 
     let lead-carrier min-one-of carriers [distance myself]
-    if distance lead-carrier > 18 [
-      face lead-carrier
-      forward speed
+    let d distance lead-carrier
+    let ideal-radius 16
+    let band 2
+    
+    if d > ideal-radius + band [
+      set new-heading towards lead-carrier
+      set state "turning"
     ]
-    if distance lead-carrier < 14 [
-      face lead-carrier
-      rt 180
-      forward speed
+    if d < ideal-radius - band [
+      set new-heading (towards lead-carrier + 180) mod 360
+      set state "turning"
     ]
-    if distance lead-carrier >= 14 and distance lead-carrier <= 18 [
-      face lead-carrier
-      rt 90
-      forward speed
+    if d >= ideal-radius - band and d <= ideal-radius + band [
+      set new-heading (towards lead-carrier + 90) mod 360
+      set state "turning"
     ]
+    let others other frigates in-radius 3
+    if any? others [
+      rt random 60
+]
+    move-frigates
   ]
 end
 
