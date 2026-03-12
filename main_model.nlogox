@@ -99,6 +99,7 @@ to go
   update-date-string
   check-events
   move-carriers
+  move-frigates
   move-shars
   move-daggers
   spawn-dagger?

@@ -4,7 +4,7 @@ to setup-frigates
   create-frigates 2 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_22"
-    set speed 0.08
+    set speed 0.037
     set state "straight"
     set radar-range 30
     set escort-angle (who * 180) mod 360
@@ -85,7 +85,34 @@ end
 
 
 
-to scan-and-respond
+to scan-and-respond 
+  ask frigates [ 
+    let lead-carrier min-one-of carriers [distance myself]
+    let d distance lead-carrier
+    let ideal-radius 16
+    let band 2
+    
+    if d > ideal-radius + band [
+      set new-heading towards lead-carrier
+      set state "turning"
+    ]
+    if d < ideal-radius - band [
+      set new-heading (towards lead-carrier + 180) mod 360
+      set state "turning"
+    ]
+    if d >= ideal-radius - band and d <= ideal-radius + band [
+      set new-heading (towards lead-carrier + 90) mod 360
+      set state "turning"
+    ]
+    let others other frigates in-radius 3
+    if any? others [
+      rt random 60
+]
+    move-frigates
+  ]
+end
+
+to scan-and-respond-two
   
   let ideal-radius 16
   let rad-angle escort-angle * pi / 180  
@@ -106,8 +133,6 @@ to scan-and-respond
   ]
   
 end
-
-
 
 to threat-response
   let target-dagger min-one-of (daggers in-radius radar-range) [distance myself]

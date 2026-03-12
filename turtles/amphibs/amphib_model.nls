@@ -1,4 +1,4 @@
-amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range]
+amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count]
 
 to setup-amphibs 
   create-amphibs 25 [  
@@ -11,6 +11,7 @@ to setup-amphibs
     set sam-range 8
     set mez-range  5
     set turn-rate 0.5
+    set troop-count 50
     set size 1.5
     set color brown
     setxy random-xcor random-ycor 
@@ -56,42 +57,20 @@ end
 
 to execute-logic-amphibs
   ask amphibs [
-    ifelse any? daggers in-radius radar-range [
-    threat-response-destroyer] [scan-and-respond-amphibs]
+    scan-and-respond-amphibs
+    launch-troops self
   ]
 end
 
-
+;; Amphibious ship “escort” movement
 to scan-and-respond-amphibs
-  ask amphibs [ 
+  ask amphibs [
+    ;; Follow the nearest carrier
     let lead-carrier min-one-of carriers [distance myself]
     let d distance lead-carrier
-if d > 10 [
-    set new-heading towards lead-carrier
-    set state "turning"
-  ]
-] 
-if [troop-count] of amp > 0 and distance-to-beach amp < 2 
-
-end
-
-to-report distance-to-beach [distance myself]
-  let beach min-one-of patches with [is-beach?]
-  report distance beach
-end
-
-to launch-troops [amp]
-  if [troop-count] of amp > 0 and distance-to-beach amp < 2 [
-    let n min (list 5 [troop-count] of amp)   ;; spawn up to 5 per tick
-    create-troops n [
-      setxy [xcor] of amp [ycor] of amp
-      set speed 0.03
-      set mission "land"
-      set color red
-    ]
-    ask amp [
-      set troop-count troop-count - n
+    
+    if d > 10 [
+      set new-heading towards lead-carrier
+      set state "turning"
     ]
   ]
-end
-
