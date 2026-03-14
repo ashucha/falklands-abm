@@ -1,48 +1,58 @@
-frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range]
+frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier]
 
 to setup-frigates 
   create-frigates 2 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_22"
-    set speed 0.037
+    set speed 0.08
     set state "straight"
     set radar-range 30
     set gun-range 2
     set sam-range 6
     set mez-range 3
-    set turn-rate 0.5
+    set turn-rate 0.8
     set size 2
     set color green
     setxy random-xcor random-ycor 
+    
+    let hermes one-of carriers with [name = "hms-hermes"]
+    let invincible one-of carriers with [name = "hms-invincible"]
+     
+    ifelse who mod 2 = 0 [
+  set escort-carrier invincible]
+    [set escort-carrier hermes] 
   ]
   
   create-frigates 6 [ 
     set shape "default" ;; determines the icon to display the turtle
     set name "type_21"
-    set speed 0.04
+    set speed 0.07
     set state "straight"
     set radar-range 20
     set gun-range 15
     set sam-range 30
     set mez-range 25 ;; double check
-    set turn-rate 0.5
+    set turn-rate 0.8
     set size 2
     set color green
     setxy random-xcor random-ycor 
-  ]
+    
+    let hermes one-of carriers with [name = "hms-hermes"]
+    let invincible one-of carriers with [name = "hms-invincible"]
+     
+    ifelse who mod 2 = 0 [
+  set escort-carrier invincible
+][
+  set escort-carrier hermes
+]
+    
+    ]   
+  
 end
 
 
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
-  ;;ask frigates [
-    ;; Find the carrier closest to this frigate
-  ;;  let lead-carrier min-one-of carriers [distance myself]
-    
-   ;; let target-x pxcor
-   ;; let target-y pycor
-  ;;  ]
-  
   ask frigates [
     ifelse state = "turning" [
       let delta subtract-headings new-heading heading
@@ -65,7 +75,7 @@ to move-frigates
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
       set label name
-    ] [ set label "" ]
+    ] [ set label "" ] 
   ]
 end
 
@@ -76,32 +86,32 @@ to execute-logic
   ]
 end
 
-
-to scan-and-respond 
-  ask frigates [ 
-    let lead-carrier min-one-of carriers [distance myself]
-    let d distance lead-carrier
-    let ideal-radius 16
-    let band 2
-    
-    if d > ideal-radius + band [
-      set new-heading towards lead-carrier
-      set state "turning"
-    ]
-    if d < ideal-radius - band [
-      set new-heading (towards lead-carrier + 180) mod 360
-      set state "turning"
-    ]
-    if d >= ideal-radius - band and d <= ideal-radius + band [
-      set new-heading (towards lead-carrier + 90) mod 360
-      set state "turning"
-    ]
-    let others other frigates in-radius 3
-    if any? others [
-      rt random 60
-]
-;    move-frigates
+ 
+to scan-and-respond
+  let d distance escort-carrier
+  let ideal-radius 16
+  let band 2
+  
+  if d > ideal-radius + band [
+    set new-heading towards escort-carrier
+    set state "turning"
   ]
+  
+  if d < ideal-radius - band [
+    set new-heading (towards escort-carrier + 180) mod 360
+    set state "turning"
+  ]
+    
+  if d >= ideal-radius - band and d <= ideal-radius + band [
+    set new-heading (heading + 1) mod 360
+    set state "turning"
+  ]
+  
+  ; let others other frigates in-radius 3
+  ; if any? others [
+  ;   rt random 60
+  ; ]
+  
 end
 
 to threat-response
@@ -130,7 +140,6 @@ to threat-response
         ]
       ]
     ]
-  ask frigates [scan-and-respond]
  ; ]
 end
 
