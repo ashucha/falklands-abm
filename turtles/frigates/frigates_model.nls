@@ -4,13 +4,14 @@ to setup-frigates
   create-frigates 2 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_22"
-    set speed 0.037
+    set speed 0.08
     set state "straight"
     set radar-range 30
     set escort-angle (who * 180) mod 360
     set gun-range 2
     set sam-range 6
     set mez-range 3
+    set turn-rate 0.8
     set turn-rate 0.8
     set size 2
     set color green
@@ -56,23 +57,28 @@ end
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
   ask frigates [
-    let delta subtract-headings new-heading heading
-
-    if abs delta > turn-rate [
-      ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+    ifelse state = "turning" [
+      let delta subtract-headings new-heading heading
+      ifelse abs (delta) > turn-rate [ ;; need to keep turning
+        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+      ] [
+        set state "straight"
+      ]
+    ] [
+      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
+      if ticks mod 500 = 0 [
+        if random 100 > 30 [ 
+          set new-heading new-heading + 45 - random 90
+          set state "turning"
+        ]
+      ]
     ]
-
-    if state = "moving" [
-      forward speed
-    ]
-
-    if state = "loiter" [
-      forward speed * 0.1  ;; slow drift ??
-    ]
+    forward speed
     
-    ifelse show-stat?
-    [ set label name ]
-    [ set label "" ] ;; idk this has been here
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ] 
   ]
 end
 
@@ -108,30 +114,8 @@ to scan-and-respond
     if any? others [
       rt random 60
 ]
-    move-frigates
+;    move-frigates
   ]
-end
-
-to scan-and-respond-two
-  
-  let ideal-radius 16
-  let rad-angle escort-angle * pi / 180  
-
-  let target-x ([xcor] of escort-carrier) + ideal-radius * cos rad-angle
-  let target-y ([ycor] of escort-carrier) + ideal-radius * sin rad-angle
-
-  let d distancexy target-x target-y
-
-  let angle-to-target atan (target-y - ycor) (target-x - xcor)
-  set new-heading (angle-to-target + 90) mod 360
-  
-  if d < 1 [
-    set state "loiter"
-  ]
-  if d >= 1 [
-    set state "moving"
-  ]
-  
 end
 
 to threat-response

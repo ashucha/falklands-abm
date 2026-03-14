@@ -4,7 +4,7 @@ to setup-amphibs
   create-amphibs 25 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_42"
-    set speed 0.035
+    set speed 0.45
     set state "straight"
     set radar-range 18
     set gun-range 10
@@ -58,7 +58,7 @@ end
 to execute-logic-amphibs
   ask amphibs [
     scan-and-respond-amphibs
-    launch-troops self
+    ;launch-troops
   ]
 end
 
@@ -74,3 +74,4 @@ to scan-and-respond-amphibs
       set state "turning"
     ]
   ]
+end

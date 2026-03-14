@@ -100,6 +100,7 @@ to go
   check-events
   move-carriers
   move-frigates
+  move-destroyers
   move-shars
   move-daggers
   spawn-dagger?
