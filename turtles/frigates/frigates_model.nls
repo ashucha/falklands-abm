@@ -67,12 +67,12 @@ to move-frigates
     ]
 
     if state = "loiter" [
-      forward speed * 0.2  ;; slow drift to stay in orbit
+      forward speed * 0.1  ;; slow drift ??
     ]
     
     ifelse show-stat?
     [ set label name ]
-    [ set label "" ]
+    [ set label "" ] ;; idk this has been here
   ]
 end
 
@@ -134,7 +134,7 @@ to threat-response
           ]
         ]
       ]
-    ]
+    ] ;;missile time in air: only one at a time, etc
  ; ]
 end
 
