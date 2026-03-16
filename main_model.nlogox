@@ -50,10 +50,16 @@ breed [ ships ship ]
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
 
-
 ;; initializes everything
 to setup
-  clear-all  
+  clear-all
+  
+  ;; initialize patches/world FIRST
+  resize-world -100 250 -100 100
+  
+  ;; load Falklands background map AFTER resize-world
+  import-drawing "falklands map v5.png"
+  
   ;; initializes global variables
   set ocean-color 96.5
   set ocean-offset 0.5
@@ -65,22 +71,37 @@ to setup
   set cur-min 0
   set cur-hour 0
   set cur-day 2
-  set cur-month 4  ;; April
+  set cur-month 4
   set cur-year 1982
   set conflict-days 0
   update-date-string
   
   setup-events
-  
-  ;; initialize patches
-  resize-world -100 250 -100 100
-  ask patches [ set pcolor ocean-color + random-float ocean-offset ]
-  ask patch 0 0 [ set pcolor blue ]
-  ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
-  
   setup-carriers
   setup-shars
   setup-faa-constants
+  
+  ;; CAP labels
+  let i 1
+  while [i < length shar-cap-list] [
+    let c item i shar-cap-list
+    create-turtles 1 [
+      setxy (item 0 c) (item 1 c)
+      set size 3
+      set label "+"
+      set label-color yellow
+      set color yellow
+    ]
+    set i i + 1
+  ]
+  
+  ;; VERY visible red test marker at 200 nmi reference
+  create-turtles 1 [
+    setxy (floor nmi-to-patches 200) 0
+    set shape "dot"
+    set color red
+    set size 6
+  ]
   
   reset-ticks
 end
