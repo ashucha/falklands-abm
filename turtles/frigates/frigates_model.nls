@@ -1,4 +1,4 @@
-frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier]
+frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier escort-angle]
 
 to setup-frigates 
   create-frigates 2 [  
@@ -7,6 +7,7 @@ to setup-frigates
     set speed 0.08
     set state "straight"
     set radar-range 30
+    set escort-angle (who * 180) mod 360
     set gun-range 2
     set sam-range 6
     set mez-range 3
@@ -29,6 +30,7 @@ to setup-frigates
     set speed 0.07
     set state "straight"
     set radar-range 20
+    set escort-angle (who * 60) mod 360
     set gun-range 15
     set sam-range 30
     set mez-range 25 ;; double check
@@ -54,65 +56,58 @@ end
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
   ask frigates [
-    ifelse state = "turning" [
-      let delta subtract-headings new-heading heading
-      ifelse abs (delta) > turn-rate [ ;; need to keep turning
-        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
-      ] [
-        set state "straight"
-      ]
-    ] [
-      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
-      if ticks mod 500 = 0 [
-        if random 100 > 30 [ 
-          set new-heading new-heading + 45 - random 90
-          set state "turning"
-        ]
-      ]
+    let delta subtract-headings new-heading heading
+
+    if abs delta > turn-rate [
+      ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
     ]
-    forward speed
+
+    if state = "moving" [
+      forward speed
+    ]
+
+    if state = "loiter" [
+      forward speed * 0.2  ;; slow drift to stay in orbit
+    ]
     
-    ;; UI stuff, useful for debugging
-    ifelse show-stat? [ 
-      set label name
-    ] [ set label "" ] 
+    ifelse show-stat?
+    [ set label name ]
+    [ set label "" ]
   ]
 end
+
+
 
 to execute-logic
-  ask frigates [
     ifelse any? daggers in-radius radar-range [
     threat-response] [scan-and-respond]
-  ]
 end
 
- 
+
+
 to scan-and-respond
-  let d distance escort-carrier
+  
   let ideal-radius 16
-  let band 2
+  let rad-angle escort-angle * pi / 180  
+
+  let target-x ([xcor] of escort-carrier) + ideal-radius * cos rad-angle
+  let target-y ([ycor] of escort-carrier) + ideal-radius * sin rad-angle
+
+  let d distancexy target-x target-y
+
+  let angle-to-target atan (target-y - ycor) (target-x - xcor)
+  set new-heading (angle-to-target + 90) mod 360
   
-  if d > ideal-radius + band [
-    set new-heading towards escort-carrier
-    set state "turning"
+  if d < 1 [
+    set state "loiter"
   ]
-  
-  if d < ideal-radius - band [
-    set new-heading (towards escort-carrier + 180) mod 360
-    set state "turning"
+  if d >= 1 [
+    set state "moving"
   ]
-    
-  if d >= ideal-radius - band and d <= ideal-radius + band [
-    set new-heading (heading + 1) mod 360
-    set state "turning"
-  ]
-  
-  ; let others other frigates in-radius 3
-  ; if any? others [
-  ;   rt random 60
-  ; ]
   
 end
+
+
 
 to threat-response
   let target-dagger min-one-of (daggers in-radius radar-range) [distance myself]
