@@ -55,6 +55,7 @@ turtles-own [
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup
+
   clear-all
 
   ;; safe defaults if widgets are not added yet
@@ -68,11 +69,11 @@ to setup
   set ngfs-last-fire-tick 0
   set ngfs-mode "realistic"
 
+  ;; set to false if you do not want heatmap by default
   if show-heatmap? != true and show-heatmap? != false [
     set show-heatmap? true
   ]
 
-  ;; analytics init
   set ngfs-strikes 0
   set ngfs-total-damage 0
   set ngfs-total-kills 0
@@ -113,6 +114,7 @@ to setup
   ]
 
   reset-ticks
+
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -121,15 +123,9 @@ end
 
 to assign-elevation
   ask patches [
-    if pcolor <= 20 [
-      set elevation-level 0
-    ]
-    if pcolor > 20 and pcolor <= 60 [
-      set elevation-level 1
-    ]
-    if pcolor > 60 [
-      set elevation-level 2
-    ]
+    if pcolor <= 20 [ set elevation-level 0 ]
+    if pcolor > 20 and pcolor <= 60 [ set elevation-level 1 ]
+    if pcolor > 60 [ set elevation-level 2 ]
   ]
 end
 
@@ -146,7 +142,9 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to spawn-argentine-battalions
+
   create-argentine-troops 4 [
+
     set color red
     set size 2
 
@@ -158,23 +156,23 @@ to spawn-argentine-battalions
     set suppressed-ticks 0
 
     move-to one-of patches with [not water?]
+
   ]
+
 end
 
 to run-argentine-troops
+
   ask argentine-troops [
 
     set color red
 
-    ;; recover when not actively under pressure
-    recover-health
-
-    ;; suppression decays
+    ;; suppression decay
     if suppressed-ticks > 0 [
       set suppressed-ticks suppressed-ticks - 1
     ]
 
-    ;; if bunker under unit no longer exists, clear bunker status
+    ;; if bunker destroyed under them, they are no longer protected
     if in-bunker? and (not [bunker?] of patch-here or [bunker-strength] of patch-here <= 0) [
       set in-bunker? false
       set entrenched? false
@@ -183,69 +181,73 @@ to run-argentine-troops
     ;; surrender check
     check-surrender
 
-    ;; if the turtle died in surrender check, it will not proceed
-    if not member? self sort turtles [
+    ;; if the unit surrendered this tick, it is gone
+    if not any? argentine-troops with [self = myself] [
       stop
     ]
 
-    ;; enter bunker if on one and space exists
+    ;; try to enter bunker if standing on one
     occupy-bunker-if-possible
 
-    ;; suppression = degraded movement, not total freeze
-    ifelse suppressed-ticks > 0 [
-      if random-float 1 < 0.3 [
-        rt random 60
-        if not [water?] of patch-ahead 1 [
-          fd 0.5
+    ;; if pinned and not in bunker, they mostly hold / freeze
+    let pinned? (suppressed-ticks > 0 and not in-bunker?)
+
+    ifelse in-bunker? [
+
+      set entrenched? true
+      detect-british
+
+      if engagement-target != nobody [
+        fire-at-target
+      ]
+
+    ] [
+
+      if not pinned? [
+        seek-bunker
+        occupy-bunker-if-possible
+      ]
+
+      ifelse in-bunker? [
+
+        set entrenched? true
+        detect-british
+
+        if engagement-target != nobody [
+          fire-at-target
+        ]
+
+      ] [
+
+        if not pinned? and not entrenched? [
+          move-to-ridge
+        ]
+
+        ;; suppression + low morale can force movement
+        if morale < 40 and suppressed-ticks > 0 [
+          retreat
+        ]
+
+        detect-british
+
+        if engagement-target != nobody [
+          fire-at-target
+        ]
+
+        if strength < 30 [
+          retreat
         ]
       ]
-    ] [
-      if not in-bunker? [
-        seek-bunker
-      ]
-    ]
-
-    ;; if still not in bunker, use normal ridge logic
-    if not in-bunker? and not entrenched? [
-      move-to-ridge
-    ]
-
-    ;; very low morale under fire can trigger retreat
-    if morale < 40 and suppressed-ticks > 0 and not in-bunker? [
-      retreat
-    ]
-
-    detect-british
-
-    if engagement-target != nobody [
-      fire-at-target
-    ]
-
-    if strength < 30 and not in-bunker? [
-      retreat
     ]
 
     update-visual-state
+
   ]
-end
 
-to recover-health
-  if suppressed-ticks = 0 and engagement-target = nobody [
-    let recovery 0.2
-
-    if in-bunker? [
-      set recovery 0.5
-    ]
-
-    set strength strength + recovery
-
-    if strength > 100 [
-      set strength 100
-    ]
-  ]
 end
 
 to update-visual-state
+
   set color red
 
   let status "E"
@@ -267,9 +269,11 @@ to update-visual-state
     set label status
     set label-color white
   ]
+
 end
 
 to move-to-ridge
+
   let best-patch max-one-of patches in-radius 2 [elevation-level]
 
   if best-patch != nobody [
@@ -291,18 +295,17 @@ to move-to-ridge
         ]
       ]
     ]
+
   ]
+
 end
 
 to seek-bunker
-  if in-bunker? [
-    stop
-  ]
 
-  ;; only seek bunker when stressed or weakened
-  if morale > 60 and strength > 70 and suppressed-ticks = 0 [
-    stop
-  ]
+  if in-bunker? [ stop ]
+
+  ;; only seek bunker when stressed
+  if morale > 60 and strength > 70 and suppressed-ticks = 0 [ stop ]
 
   let nearby-bunker min-one-of
     (patches in-radius 5 with [
@@ -318,9 +321,11 @@ to seek-bunker
       fd 1
     ]
   ]
+
 end
 
 to occupy-bunker-if-possible
+
   if [bunker?] of patch-here and [bunker-strength] of patch-here > 0 [
     let occupants count turtles-here with [breed = argentine-troops and in-bunker?]
 
@@ -329,6 +334,7 @@ to occupy-bunker-if-possible
       set entrenched? true
     ]
   ]
+
 end
 
 to detect-british
@@ -336,13 +342,8 @@ to detect-british
     let enemy min-one-of british-troops [distance myself]
     let detect-range current-detection-range
 
-    if distance enemy <= detect-range [
-      set engagement-target enemy
-    ]
-
-    if distance enemy > detect-range [
-      set engagement-target nobody
-    ]
+    if distance enemy <= detect-range [ set engagement-target enemy ]
+    if distance enemy > detect-range [ set engagement-target nobody ]
   ]
 
   if not any? british-troops [
@@ -351,14 +352,13 @@ to detect-british
 end
 
 to fire-at-target
-  if engagement-target = nobody [
-    stop
-  ]
+  if engagement-target = nobody [ stop ]
 
   let hit-prob current-hit-prob
   let target-agent engagement-target
-  let likely-kill? false
 
+  ;; morale gain for killing enemy
+  let likely-kill? false
   if [strength] of target-agent <= 10 [
     set likely-kill? true
   ]
@@ -373,9 +373,7 @@ to fire-at-target
 
     if likely-kill? [
       set morale morale + 0.5
-      if morale > 100 [
-        set morale 100
-      ]
+      if morale > 100 [ set morale 100 ]
     ]
   ]
 end
@@ -392,9 +390,7 @@ end
 
 to check-surrender
   if morale < 30 [
-    let surrender-prob (0.1 + (30 - morale) / 100)
-
-    if random-float 1 < surrender-prob [
+    if random-float 1 < 0.10 [
       set surrenders-total surrenders-total + 1
       die
     ]
@@ -402,7 +398,7 @@ to check-surrender
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; RIDGE ADVANTAGE
+;; REPORTERS FOR RIDGE ADVANTAGE
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report current-detection-range
@@ -446,7 +442,7 @@ to-report current-hit-prob
   report hit-prob
 end
 
-;; reporter kept for later when British movement exists
+;; use this later when British movement is added
 to-report british-uphill-move-multiplier [from-patch to-patch]
   if [elevation-level] of to-patch > [elevation-level] of from-patch [
     report 0.5
@@ -455,10 +451,11 @@ to-report british-uphill-move-multiplier [from-patch to-patch]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; BUNKERS
+;; BUNKERS (LIMITED TO 5)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup-bunkers
+
   ask patches [
     set bunker? false
     set bunker-strength 0
@@ -486,6 +483,7 @@ to setup-bunkers
       set plabel-color white
     ]
   ]
+
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -493,6 +491,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to apply-ngfs
+
   if (ticks - ngfs-last-fire-tick) < ngfs-fire-interval [
     stop
   ]
@@ -507,9 +506,7 @@ to apply-ngfs
     ]
   ]
 
-  if not any? targets [
-    stop
-  ]
+  if not any? targets [ stop ]
 
   let strike-target one-of targets
 
@@ -524,9 +521,11 @@ to apply-ngfs
       apply-ngfs-to-patch impact-center
     ]
   ]
+
 end
 
 to apply-ngfs-to-patch [center]
+
   set ngfs-flash-ticks 1
   set pcolor red
   set strike-count strike-count + 1
@@ -538,7 +537,7 @@ to apply-ngfs-to-patch [center]
     set base-damage 0
   ]
 
-  ;; bunker structure damage
+  ;; bunker structure damage + cascading effect
   if bunker? [
     set bunker-strength bunker-strength - base-damage
 
@@ -558,6 +557,7 @@ to apply-ngfs-to-patch [center]
   ]
 
   ask turtles-here with [breed = argentine-troops] [
+
     let terrain "open"
 
     if in-bunker? and [bunker?] of patch-here [
@@ -578,33 +578,44 @@ to apply-ngfs-to-patch [center]
       set damage damage * 0.2
     ]
 
-    ;; reduced morale shock
-    let morale-loss ((damage * 0.2) + 0.25)
+    ;; morale effects
+    ;; casualties term: damage * 0.5
+    ;; bombardment term: + 0.25 per bombardment event
+    let morale-loss ((damage * 0.5) + 0.25)
 
     set strength strength - damage
     set morale morale - morale-loss
-    set suppressed-ticks max list suppressed-ticks 1
+    set suppressed-ticks max list suppressed-ticks 2
 
     set ngfs-total-damage ngfs-total-damage + damage
     set arg-strength-loss-total arg-strength-loss-total + damage
 
-    ;; balanced death logic
-    if strength <= 0 [
+    ;; probabilistic survival curve
+    let death-prob 0
+
+    if terrain = "open" [
+      set death-prob (0.02 + damage / 35 + max list 0 ((40 - strength) / 100))
+    ]
+
+    if terrain = "trench" [
+      set death-prob (0.01 + damage / 55 + max list 0 ((30 - strength) / 120))
+    ]
+
+    if terrain = "bunker" [
+      set death-prob (0.005 + damage / 90 + max list 0 ((20 - strength) / 150))
+    ]
+
+    if death-prob > 0.95 [
+      set death-prob 0.95
+    ]
+
+    if strength <= 0 or random-float 1 < death-prob [
       set ngfs-total-kills ngfs-total-kills + 1
       die
     ]
 
-    if strength < 40 [
-      let death-prob (damage / 50)
-      if death-prob > 0.95 [
-        set death-prob 0.95
-      ]
-      if random-float 1 < death-prob [
-        set ngfs-total-kills ngfs-total-kills + 1
-        die
-      ]
-    ]
   ]
+
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -613,12 +624,14 @@ end
 
 to refresh-patch-visuals
   ask patches [
+
     if ngfs-flash-ticks > 0 [
       set pcolor red
       set ngfs-flash-ticks ngfs-flash-ticks - 1
     ]
 
     if ngfs-flash-ticks = 0 [
+
       if bunker? [
         set pcolor black
         set plabel "B"
@@ -654,9 +667,7 @@ end
 
 to-report distance-to-coast [p]
   let coast patches with [is-coastal? self]
-  if not any? coast [
-    report 999
-  ]
+  if not any? coast [ report 999 ]
   report min [distance p] of coast
 end
 
@@ -665,6 +676,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to export-ngfs-data
+
   file-open export-file
 
   if not csv-initialized? [
@@ -686,6 +698,7 @@ to export-ngfs-data
     set avg-hit-prob mean [current-hit-prob] of argentine-troops
   ]
 
+  file-open export-file
   file-print (word
     ticks ","
     bunker-mode ","
@@ -715,6 +728,7 @@ to export-ngfs-data
   )
 
   file-close
+
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -722,11 +736,14 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to go
+
   refresh-patch-visuals
   run-argentine-troops
   apply-ngfs
   export-ngfs-data
+
   tick
+
 end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
