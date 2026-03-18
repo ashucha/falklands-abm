@@ -40,6 +40,9 @@ globals [
   
 ] 
 
+;; set up ocean patch
+patches-own [ ocean? ]
+
 ;; setting up the types of turtles <plural name> <singular name>
 breed [ carriers carrier ]
 breed [ shars shar ]
@@ -58,7 +61,26 @@ to setup
   resize-world -100 250 -100 100
   
   ;; load Falklands background map AFTER resize-world
-  import-drawing "falklands map v5.png"
+  import-pcolors "falklands map v5.png"
+  
+  ;; classify patches as ocean or land
+  ask patches [
+    let c extract-rgb pcolor
+    let r item 0 c
+    let g item 1 c
+    let b item 2 c
+    
+    ifelse (b > r and b > g) [
+      set ocean? true
+    ] [
+      set ocean? false
+    ]
+  ]
+  
+  ask patches [
+  if ocean? [ set pcolor blue ]
+  if not ocean? [ set pcolor green ]
+  ]
   
   ;; initializes global variables
   set ocean-color 96.5

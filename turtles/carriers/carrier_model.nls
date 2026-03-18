@@ -36,7 +36,9 @@ to setup-carriers
     set turn-rate 0.5
     set size 5
     set color gray
-    setxy random-xcor random-ycor  
+    move-to one-of patches with [
+      ocean? and all? patches in-radius 3 [ ocean? ]
+]
   ]
   
   create-carriers 1 [ 
@@ -50,7 +52,9 @@ to setup-carriers
     set turn-rate 0.5
     set size 5
     set color gray
-    setxy random-xcor random-ycor 
+    move-to one-of patches with [
+      ocean? and all? patches in-radius 2 [ ocean? ]
+]
   ]
 end
 
