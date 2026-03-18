@@ -1,0 +1,131 @@
+destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier escort-angle orbit-radius orbit-speed]
+
+ to setup-destroyers
+  ask carriers [
+    hatch-destroyers 4 [
+      set name "type_42"
+      set color orange
+      set size 2
+
+      set escort-carrier myself
+      set speed 0.07
+      set turn-rate 0.8
+      set radar-range 20
+      set gun-range 15
+      set sam-range 30
+      set mez-range 25
+      set state "straight"
+
+      set orbit-radius 22
+      set orbit-speed 0;4
+
+      if who mod 4 = 0 [ set escort-angle 30 ]
+      if who mod 4 = 1 [ set escort-angle 120 ]
+      if who mod 4 = 2 [ set escort-angle 210 ]
+      if who mod 4 = 3 [ set escort-angle 300 ]
+
+let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
+let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+
+setxy min list max-pxcor max list min-pxcor new-x
+      min list max-pycor max list min-pycor new-y
+      
+      set heading (towards escort-carrier + 90)
+    ]
+  ]
+end
+
+
+;; find location of "events"/maybe change pcolor?
+to move-destroyers
+  ask destroyers [
+    set escort-angle (escort-angle + orbit-speed) mod 360
+    let rad-angle escort-angle * pi / 180
+    let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
+    let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+    setxy min list max-pxcor max list min-pxcor new-x
+          min list max-pycor max list min-pycor new-y
+    set heading (towards escort-carrier + 90)
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ] 
+  ]
+end
+
+to execute-logic-destroyer
+  ask destroyers [
+    ifelse any? daggers in-radius radar-range [
+    threat-response-destroyer] [scan-and-respond-destroyer]
+  ]
+end
+
+
+to scan-and-respond-destroyer 
+  ask destroyers [ 
+    let lead-carrier min-one-of carriers [distance myself]
+    let d distance lead-carrier
+    let ideal-radius 22
+    let band 2
+    
+    if d > ideal-radius + band [
+      set new-heading towards lead-carrier
+      set state "turning"
+    ]
+    if d < ideal-radius - band [
+      set new-heading (towards lead-carrier + 180) mod 360
+      set state "turning"
+    ]
+    if d >= ideal-radius - band and d <= ideal-radius + band [
+      set new-heading (towards lead-carrier + 90) mod 360
+      set state "turning"
+    ]
+    let others other frigates in-radius 3
+    if any? others [
+      rt random 60
+]
+    move-destroyers
+  ]
+end
+
+to threat-response-destroyer
+  let target-dagger min-one-of (daggers in-radius radar-range) [distance myself]
+  if target-dagger != nobody [
+    let closest-cap min-one-of (shars with [mission = "cap"]) [distance myself]
+    
+    ifelse closest-cap != nobody [
+      ask closest-cap [ face [target-dagger] of myself
+        set mission "intercept"
+      ]
+    ] ; [ 
+      ;let nearby-carrier min-one-of (carriers in-radius radar-range) [distance myself]
+      ;ifelse nearby-carrier != nobody and [alert-aircraft > 0] of nearby-carrier [
+        ;ask nearby-carrier [
+          ;launch-shar target-dagger 
+        ;]
+      ;] 
+  [
+        if distance target-dagger < sam-range [
+          let closest-shar min-one-of shars [distance myself]
+          ifelse closest-shar != nobody and distance closest-shar < mez-range [
+          ] [
+            execute-sam-launch-destroyer target-dagger
+          ]
+        ]
+      ]
+    ]
+  ask destroyers [scan-and-respond-destroyer]
+ ; ]
+end
+
+to execute-sam-launch-destroyer [ target-dagger ]
+  let p-hit 30
+  let p-kill 100
+
+  if (random 100 < p-hit) [
+    if (random 100 < p-kill) [
+      ask target-dagger [ die ]
+    ]
+  ]
+end

@@ -30,7 +30,7 @@ to move-shars
     ;; logic: decisions and actions, depends on state. Order matters here. 
     ;;        I couldn't decide between a chain of if statements and nested if statements.
     if is-bingo? [ 
-      set state "rtb"
+      set state "rtb" 
     ]
     if missiles <= 0 [ set state "rtb" ]
     if state = "transit" [ ;; protip! set all the pertinent state parameters at the start of the state logic. that way, you just have to set the state

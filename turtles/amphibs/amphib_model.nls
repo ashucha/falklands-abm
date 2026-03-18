@@ -1,0 +1,77 @@
+amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count]
+
+to setup-amphibs 
+  create-amphibs 25 [  
+    set shape "default" ;; determines the icon to display the turtle
+    set name "type_42"
+    set speed 0.45
+    set state "straight"
+    set radar-range 18
+    set gun-range 10
+    set sam-range 8
+    set mez-range  5
+    set turn-rate 0.5
+    set troop-count 50
+    set size 1.5
+    set color brown
+    setxy random-xcor random-ycor 
+  ]
+end
+
+
+;; find location of "events"/maybe change pcolor?
+to move-amphibs
+  ;;ask ships [
+    ;; Find the carrier closest to this frigate
+  ;;  let lead-carrier min-one-of carriers [distance myself]
+    
+   ;; let target-x pxcor
+   ;; let target-y pycor
+  ;;  ]
+  
+  ask amphibs [
+    ifelse state = "turning" [
+      let delta subtract-headings new-heading heading
+      ifelse abs (delta) > turn-rate [ ;; need to keep turning
+        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+      ] [
+        set state "straight"
+      ]
+    ] [
+      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
+      if ticks mod 500 = 0 [
+        if random 100 > 30 [ 
+          set new-heading new-heading + 45 - random 90
+          set state "turning"
+        ]
+      ]
+    ]
+    forward speed
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ]
+  ]
+end
+
+to execute-logic-amphibs
+  ask amphibs [
+    scan-and-respond-amphibs
+    ;launch-troops
+  ]
+end
+
+;; Amphibious ship “escort” movement
+to scan-and-respond-amphibs
+  ask amphibs [
+    ;; Follow the nearest carrier
+    let lead-carrier min-one-of carriers [distance myself]
+    let d distance lead-carrier
+    
+    if d > 10 [
+      set new-heading towards lead-carrier
+      set state "turning"
+    ]
+  ]
+end

@@ -5,10 +5,13 @@
   "utils/distances.nls"
   "utils/events.nls"
   "turtles/shars/shar_model.nls" 
-  "turtles/carriers/carrier_model.nls"  
+  "turtles/carriers/carrier_model.nls" 
+  "turtles/frigates/frigates_model.nls"
+  "turtles/destroyers/destroyer_model.nls"
+  "turtles/amphibs/amphib_model.nls"
   "turtles/faa/faa_model.nls"
 ]
-
+;hi
 globals [ 
   ocean-color ocean-offset
   
@@ -50,8 +53,16 @@ breed [ daggers dagger ]
 breed [ faas faa ]
 breed [ events event ]
 breed [ ships ship ] 
+breed [ frigates frigate ]
+breed [ destroyers destroyer ]
+breed [ amphibs amphib ]
+
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
+
+;; only breeds have these variables
+daggers-own [ bombs launch aircraft ]  
+  
 
 ;; initializes everything
 to setup
@@ -99,6 +110,13 @@ to setup
   update-date-string
   
   setup-events
+  
+  ;; initialize patches
+  resize-world -100 250 -100 100
+  ask patches [ set pcolor ocean-color + random-float ocean-offset ]
+  ask patch 0 0 [ set pcolor blue ]
+  ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
+  
   setup-carriers
   setup-shars
   setup-faa-constants
@@ -125,6 +143,10 @@ to setup
     set size 6
   ]
   
+  setup-frigates
+  setup-destroyers
+  setup-amphibs
+  
   reset-ticks
 end
 
@@ -134,10 +156,14 @@ to go
   update-date-string
   check-events
   move-carriers
+  move-frigates
+  move-destroyers
   move-shars
   move-faas
   spawn-faa?
   ask carriers [ spawn-shars? ]
+  ask frigates [ execute-logic ]
+  ask destroyers [ execute-logic-destroyer ]
   tick
 end
 
