@@ -48,14 +48,14 @@ patches-own [ ocean? ]
 
 ;; setting up the types of turtles <plural name> <singular name>
 breed [ carriers carrier ]
-breed [ shars shar ]
-breed [ daggers dagger ]
-breed [ faas faa ]
 breed [ events event ]
 breed [ ships ship ] 
 breed [ frigates frigate ]
 breed [ destroyers destroyer ]
 breed [ amphibs amphib ]
+breed [ shars shar ]
+breed [ daggers dagger ]
+breed [ faas faa ]
 
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
@@ -89,8 +89,8 @@ to setup
   ]
   
   ask patches [
-  if ocean? [ set pcolor blue ]
-  if not ocean? [ set pcolor green ]
+    if ocean? [ set pcolor blue ]
+    if not ocean? [ set pcolor green ]
   ]
   
   ;; initializes global variables
@@ -112,12 +112,14 @@ to setup
   setup-events
   
   ;; initialize patches
-  resize-world -100 250 -100 100
-  ask patches [ set pcolor ocean-color + random-float ocean-offset ]
-  ask patch 0 0 [ set pcolor blue ]
+;   ask patches [ set pcolor ocean-color + random-float ocean-offset ]
+;   ask patch 0 0 [ set pcolor blue ]
   ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
   
   setup-carriers
+  setup-frigates
+  setup-destroyers
+  setup-amphibs
   setup-shars
   setup-faa-constants
   
@@ -143,9 +145,6 @@ to setup
     set size 6
   ]
   
-  setup-frigates
-  setup-destroyers
-  setup-amphibs
   
   reset-ticks
 end
