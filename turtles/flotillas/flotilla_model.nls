@@ -1,0 +1,54 @@
+flotillas-own [ waypoints w-i phase-distance ]
+
+to setup-flotillas
+  create-flotillas 1 [
+    set waypoints (list
+      (list 47 20)
+      (list 5  29)
+      (list -2 11) 
+      (list -2 9)
+      (list 5  7)
+    ) 
+    
+    foreach waypoints [ w ->
+      ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+    ]
+    
+    set w-i 0
+    setxy 200 0
+    set color violet
+    set size 5
+    set speed 1
+    set state "phase1" 
+    set phase-distance 75 ;; TODO: should this be a real distance? @Katelyn
+  ]
+end
+
+to move-flotillas
+  ask flotillas [
+    advance
+    
+    ifelse show-stat? [
+      set label state
+    ][ set label "" ]
+  ]
+end
+
+
+to advance
+  let next-wp (item w-i waypoints)
+  let phase-wp (item (length waypoints - 1) waypoints)
+  ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+    face patch (item 0 next-wp) (item 1 next-wp)
+    forward speed
+  ][ 
+    set w-i w-i + 1 
+    if w-i >= length waypoints [
+      die
+    ]
+  ] 
+  
+  if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
+    set state "phase 2"
+  ] 
+end

@@ -9,6 +9,7 @@
   "turtles/frigates/frigates_model.nls"
   "turtles/destroyers/destroyer_model.nls"
   "turtles/amphibs/amphib_model.nls"
+  "turtles/flotillas/flotilla_model.nls"
   "turtles/faa/faa_model.nls"
 ]
 ;hi
@@ -56,6 +57,7 @@ breed [ amphibs amphib ]
 breed [ shars shar ]
 breed [ daggers dagger ]
 breed [ faas faa ]
+breed [ flotillas flotilla ]
 
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
@@ -116,6 +118,7 @@ to setup
 ;   ask patch 0 0 [ set pcolor blue ]
   ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
   
+  setup-flotillas
   setup-carriers
   setup-frigates
   setup-destroyers
@@ -154,6 +157,7 @@ to go
   advance-time minutes-per-tick
   update-date-string
   check-events
+  move-flotillas
   move-carriers
   move-frigates
   move-destroyers
