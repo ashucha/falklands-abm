@@ -10,12 +10,18 @@ globals [
   ngfs-last-fire-tick
   ngfs-mode
   bunker-mode
+  ngfs-strikes
+  ngfs-total-damage
+  ngfs-last-strike-x
+  ngfs-last-strike-y
 ]
 
 patches-own [
   elevation-level
   bunker?
   trench?
+  water?
+  base-pcolor
 ]
 
 breed [argentine-troops argentine-troop]
@@ -36,16 +42,31 @@ to setup
 
   clear-all
 
-  ;; LOAD TERRAIN (MAKE SURE FILE IS IN SAME FOLDER OR UPDATE PATH)
-  import-pcolors "terrain_map_v1.png"
+  ;; LOAD TERRAIN
+  import-pcolors "../output/terrain_map_v1.png"
+
+  ;; store original imported color
+  ask patches [
+    set base-pcolor pcolor
+    set bunker? false
+    set trench? false
+    set water? false
+  ]
 
   assign-elevation
+  classify-water
 
   ;; NGFS SETTINGS
   set ngfs-range 9
   set ngfs-fire-interval 4
   set ngfs-last-fire-tick 0
   set ngfs-mode "realistic"
+
+  ;; NGFS ANALYTICS
+  set ngfs-strikes 0
+  set ngfs-total-damage 0
+  set ngfs-last-strike-x 0
+  set ngfs-last-strike-y 0
 
   ;; BUNKERS
   set bunker-mode "historical"
@@ -63,23 +84,26 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to assign-elevation
-
   ask patches [
-
     if pcolor <= 20 [
       set elevation-level 0
     ]
-
     if pcolor > 20 and pcolor <= 60 [
       set elevation-level 1
     ]
-
     if pcolor > 60 [
       set elevation-level 2
     ]
-
   ]
+end
 
+to classify-water
+  ask patches [
+    ;; imported raster background / sea is usually white or black in this map
+    if pcolor = white or pcolor = black [
+      set water? true
+    ]
+  ]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -98,12 +122,12 @@ to spawn-argentine-battalions
     set entrenched? false
     set engagement-target nobody
 
-    if any? patches with [pcolor != blue and elevation-level = 2] [
-      move-to one-of patches with [pcolor != blue and elevation-level = 2]
+    if any? patches with [not water? and elevation-level = 2] [
+      move-to one-of patches with [not water? and elevation-level = 2]
     ]
 
-    if not any? patches with [pcolor != blue and elevation-level = 2] [
-      move-to one-of patches with [pcolor != blue]
+    if not any? patches with [not water? and elevation-level = 2] [
+      move-to one-of patches with [not water?]
     ]
 
   ]
@@ -142,7 +166,7 @@ to move-to-ridge
 
       face best-patch
 
-      if [pcolor] of patch-ahead 1 != blue [
+      if not [water?] of patch-ahead 1 [
         fd 1
       ]
 
@@ -153,7 +177,9 @@ to move-to-ridge
 
       ask patch-here [
         set trench? true
-        set pcolor brown
+        if not bunker? [
+          set pcolor brown
+        ]
       ]
     ]
 
@@ -164,7 +190,6 @@ end
 to detect-british
 
   if any? british-troops [
-
     let enemy min-one-of british-troops [distance myself]
 
     if distance enemy <= 4 [
@@ -174,7 +199,10 @@ to detect-british
     if distance enemy > 4 [
       set engagement-target nobody
     ]
+  ]
 
+  if not any? british-troops [
+    set engagement-target nobody
   ]
 
 end
@@ -204,7 +232,7 @@ to retreat
 
   rt random 360
 
-  if [pcolor] of patch-ahead 1 != blue [
+  if not [water?] of patch-ahead 1 [
     fd 1
   ]
 
@@ -221,102 +249,141 @@ to setup-bunkers
   ]
 
   if bunker-mode = "random" [
-    ask n-of 20 patches with [pcolor != blue] [
+    ask n-of 20 patches with [not water?] [
       set bunker? true
       set pcolor gray
     ]
   ]
 
   if bunker-mode = "historical" [
-
     let ridge-patches patches with [
       elevation-level = 2 and
-      pcolor != blue and
-      pxcor > 0   ;; EAST FALKLAND ONLY
+      not water? and
+      pxcor > 0
     ]
 
-    ask n-of 25 ridge-patches [
-      set bunker? true
-      set pcolor gray
+    if any? ridge-patches [
+      ask n-of (min list 25 count ridge-patches) ridge-patches [
+        set bunker? true
+        set pcolor gray
+      ]
     ]
-
   ]
 
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; NGFS
+;; NGFS (NAVAL GUNFIRE SUPPORT)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to apply-ngfs
 
+  ;; clear previous red flashes first
+  reset-ngfs-visuals
+
+  ;; fire interval control
   if (ticks - ngfs-last-fire-tick) < ngfs-fire-interval [
     stop
   ]
 
   set ngfs-last-fire-tick ticks
 
+  ;; get all Argentine troops
   let targets argentine-troops
 
+  ;; apply range constraint if realistic mode
   if ngfs-mode = "realistic" [
     set targets targets with [
       distance-to-coast patch-here <= ngfs-range
     ]
   ]
 
+  ;; if no valid targets, do nothing
   if not any? targets [ stop ]
 
+  ;; pick one random target
   let strike-target one-of targets
 
-  ask patches in-radius 1 of [patch-here] of strike-target [
-    apply-ngfs-to-patch
+  ;; track strike location
+  set ngfs-last-strike-x [xcor] of strike-target
+  set ngfs-last-strike-y [ycor] of strike-target
+
+  ;; count strike
+  set ngfs-strikes ngfs-strikes + 1
+
+  ;; define impact center
+  let impact-center [patch-here] of strike-target
+
+  ;; define impact area by asking from the patch context
+  ask impact-center [
+    ask patches in-radius 2 [
+      apply-ngfs-to-patch
+    ]
   ]
 
 end
 
 to apply-ngfs-to-patch
 
+  ;; VISUAL: flash red temporarily
+  set pcolor red
+
+  ;; affect only Argentine troops
   ask turtles-here with [breed = argentine-troops] [
 
     let terrain "open"
 
-    if [trench?] of patch-here [
+    if ([trench?] of patch-here) = true [
       set terrain "trench"
     ]
 
-    if [bunker?] of patch-here [
+    if ([bunker?] of patch-here) = true [
       set terrain "bunker"
     ]
 
-    let hit-prob 0
+    let damage 0
 
-    if terrain = "open"   [ set hit-prob 0.7 ]
-    if terrain = "trench" [ set hit-prob 0.4 ]
-    if terrain = "bunker" [ set hit-prob 0.2 ]
+    if terrain = "open"   [ set damage 20 ]
+    if terrain = "trench" [ set damage 10 ]
+    if terrain = "bunker" [ set damage 4  ]
 
-    if random-float 1 < hit-prob [
+    set strength strength - damage
+    set morale morale - 10
 
-      if terrain = "open"   [ set strength strength - 20 ]
-      if terrain = "trench" [ set strength strength - 10 ]
-      if terrain = "bunker" [ set strength strength - 4 ]
-
-      set morale morale - 10
-    ]
+    set ngfs-total-damage ngfs-total-damage + damage
 
     if strength <= 0 [
       die
     ]
-
   ]
 
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; COAST
+;; VISUAL CLEANUP
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to reset-ngfs-visuals
+  ask patches with [pcolor = red] [
+    if bunker? [
+      set pcolor gray
+    ]
+    if trench? and not bunker? [
+      set pcolor brown
+    ]
+    if not bunker? and not trench? [
+      set pcolor base-pcolor
+    ]
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; COAST DETECTION
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report is-coastal? [p]
-  report any? neighbors4 of p with [pcolor = blue]
+  let nearby [neighbors4] of p
+  report any? nearby with [water?]
 end
 
 to-report distance-to-coast [p]
@@ -332,7 +399,6 @@ end
 to go
 
   run-argentine-troops
-
   apply-ngfs
 
   tick
@@ -340,6 +406,9 @@ to go
 end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
+    <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup
+</button>
+    <button x="65" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="go">go</button>
   </widgets>
   <info>## WHAT IS IT?
 
