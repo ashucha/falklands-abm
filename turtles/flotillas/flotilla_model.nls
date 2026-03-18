@@ -1,7 +1,12 @@
-flotillas-own [ waypoints w-i phase-distance ]
+flotillas-own [ flotilla-type waypoints w-i phase-distance amphib-radius ]
 
 to setup-flotillas
+  setup-amphib-flotilla
+end
+
+to setup-amphib-flotilla
   create-flotillas 1 [
+    set flotilla-type "amphib"
     set waypoints (list
       (list 47 20)
       (list 5  29)
@@ -13,24 +18,49 @@ to setup-flotillas
     foreach waypoints [ w ->
       ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
     ]
-    
+     
     set w-i 0
+    set amphib-radius 2
     setxy 200 0
     set color violet
-    set size 5
+    set size 0
     set speed 1
     set state "phase1" 
-    set phase-distance 75 ;; TODO: should this be a real distance? @Katelyn
+    set phase-distance 75 ;; set so the destroyers/frigates move to final positions when flotilla is 75 patches from landing point
+    ;; TODO: should this be a real distance? @Katelyn
+    
+    hatch-amphibs 25 [
+      set shape "default" ;; determines the icon to display the turtle
+      set name "type_42"
+      set speed [speed] of myself
+      set state "convoy"
+      set radar-range 18
+      set gun-range 10
+      set sam-range 8
+      set mez-range  5
+      set turn-rate 0.5
+      set troop-count 50
+      set size 1.5
+      set color brown
+      let landing-point (item (length [waypoints] of myself - 1) [waypoints] of myself)
+      set lp-x (item 0 landing-point)
+      set lp-y (item 1 landing-point)
+      let ar [amphib-radius] of myself
+      set my-flotilla myself 
+      setxy ([xcor] of myself + ar - random-float (2 * ar)) ([ycor] of myself + ar - random-float (2 * ar))
+    ]
   ]
 end
 
 to move-flotillas
   ask flotillas [
-    advance
-    
-    ifelse show-stat? [
-      set label state
-    ][ set label "" ]
+    if flotilla-type = "amphib" [
+      advance
+      
+      ifelse show-stat? [
+        set label state
+      ][ set label "" ]
+    ]
   ]
 end
 
@@ -49,6 +79,7 @@ to advance
   ] 
   
   if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
-    set state "phase 2"
+    set state "phase2"
   ] 
+  if w-i = (length waypoints - 1) [ set state "phase3" ]
 end

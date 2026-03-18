@@ -1,6 +1,6 @@
-amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count]
+amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count my-flotilla lp-x lp-y ]
 
-to setup-amphibs 
+to setup-amphibs-old 
   create-amphibs 25 [  
     set shape "default" ;; determines the icon to display the turtle
     set name "type_42"
@@ -18,9 +18,34 @@ to setup-amphibs
   ]
 end
 
+to move-amphibs
+  ask amphibs [
+    if state = "convoy" [ ;; just move with the flotilla
+      if my-flotilla != nobody [ 
+        ifelse [state] of my-flotilla = "phase3" [ ;; once the flotilla reaches the 2nd to last waypoint, begin landing approach
+          set state "land"
+        ][
+          set heading [heading] of my-flotilla
+          forward speed
+        ]
+      ]
+    ]
+    if state = "land" [
+      ifelse distance patch lp-x lp-y < (1.5 * speed) [ ;; if the amphib has reached the landing point
+        set amphibs-landed amphibs-landed + 1
+        die ;; (Q@Grace) is this the right behavior? or do we still want these to be able to be engaged and bombed by FAA?
+      ][
+        facexy lp-x lp-y
+        forward speed
+      ]
+    ]
+  ]
+end
+
+
 
 ;; find location of "events"/maybe change pcolor?
-to move-amphibs
+to move-amphibs-old
   ;;ask ships [
     ;; Find the carrier closest to this frigate
   ;;  let lead-carrier min-one-of carriers [distance myself]
