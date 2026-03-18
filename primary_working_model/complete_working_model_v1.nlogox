@@ -10,16 +10,22 @@ globals [
   ngfs-last-fire-tick
   ngfs-mode
   bunker-mode
+
+  ;; analytics
   ngfs-strikes
   ngfs-total-damage
+  ngfs-total-kills
   ngfs-last-strike-x
   ngfs-last-strike-y
+
+  csv-initialized?
 ]
 
 patches-own [
   elevation-level
   bunker?
   trench?
+  bunker-strength
   water?
   base-pcolor
 ]
@@ -42,14 +48,15 @@ to setup
 
   clear-all
 
-  ;; LOAD TERRAIN
+  set csv-initialized? false
+
   import-pcolors "../output/terrain_map_v1.png"
 
-  ;; store original imported color
   ask patches [
     set base-pcolor pcolor
     set bunker? false
     set trench? false
+    set bunker-strength 0
     set water? false
   ]
 
@@ -62,17 +69,14 @@ to setup
   set ngfs-last-fire-tick 0
   set ngfs-mode "realistic"
 
-  ;; NGFS ANALYTICS
+  ;; analytics
   set ngfs-strikes 0
   set ngfs-total-damage 0
-  set ngfs-last-strike-x 0
-  set ngfs-last-strike-y 0
+  set ngfs-total-kills 0
 
-  ;; BUNKERS
-  set bunker-mode "historical"
+  ;; bunker mode comes from chooser (DO NOT hardcode)
   setup-bunkers
 
-  ;; TROOPS
   spawn-argentine-battalions
 
   reset-ticks
@@ -85,21 +89,14 @@ end
 
 to assign-elevation
   ask patches [
-    if pcolor <= 20 [
-      set elevation-level 0
-    ]
-    if pcolor > 20 and pcolor <= 60 [
-      set elevation-level 1
-    ]
-    if pcolor > 60 [
-      set elevation-level 2
-    ]
+    if pcolor <= 20 [ set elevation-level 0 ]
+    if pcolor > 20 and pcolor <= 60 [ set elevation-level 1 ]
+    if pcolor > 60 [ set elevation-level 2 ]
   ]
 end
 
 to classify-water
   ask patches [
-    ;; imported raster background / sea is usually white or black in this map
     if pcolor = white or pcolor = black [
       set water? true
     ]
@@ -122,13 +119,7 @@ to spawn-argentine-battalions
     set entrenched? false
     set engagement-target nobody
 
-    if any? patches with [not water? and elevation-level = 2] [
-      move-to one-of patches with [not water? and elevation-level = 2]
-    ]
-
-    if not any? patches with [not water? and elevation-level = 2] [
-      move-to one-of patches with [not water?]
-    ]
+    move-to one-of patches with [not water?]
 
   ]
 
@@ -138,8 +129,17 @@ to run-argentine-troops
 
   ask argentine-troops [
 
+    update-visual-state
+
     if not entrenched? [
       move-to-ridge
+    ]
+
+    ;; morale-based movement (NGFS effect)
+    if morale < 40 [
+      set entrenched? false
+      rt random 360
+      if not [water?] of patch-ahead 1 [ fd 1 ]
     ]
 
     detect-british
@@ -156,6 +156,20 @@ to run-argentine-troops
 
 end
 
+to update-visual-state
+  ;; troop always red — use LABEL as modifier
+
+  if [bunker?] of patch-here [
+    set label "B"
+  ]
+  if [trench?] of patch-here and not [bunker?] of patch-here [
+    set label "T"
+  ]
+  if not [trench?] of patch-here and not [bunker?] of patch-here [
+    set label "E"
+  ]
+end
+
 to move-to-ridge
 
   let best-patch max-one-of patches in-radius 2 [elevation-level]
@@ -163,13 +177,8 @@ to move-to-ridge
   if best-patch != nobody [
 
     if [elevation-level] of best-patch > [elevation-level] of patch-here [
-
       face best-patch
-
-      if not [water?] of patch-ahead 1 [
-        fd 1
-      ]
-
+      if not [water?] of patch-ahead 1 [ fd 1 ]
     ]
 
     if [elevation-level] of best-patch <= [elevation-level] of patch-here [
@@ -177,9 +186,7 @@ to move-to-ridge
 
       ask patch-here [
         set trench? true
-        if not bunker? [
-          set pcolor brown
-        ]
+        if not bunker? [ set pcolor brown ]
       ]
     ]
 
@@ -188,164 +195,119 @@ to move-to-ridge
 end
 
 to detect-british
-
   if any? british-troops [
     let enemy min-one-of british-troops [distance myself]
-
-    if distance enemy <= 4 [
-      set engagement-target enemy
-    ]
-
-    if distance enemy > 4 [
-      set engagement-target nobody
-    ]
+    if distance enemy <= 4 [ set engagement-target enemy ]
+    if distance enemy > 4 [ set engagement-target nobody ]
   ]
-
-  if not any? british-troops [
-    set engagement-target nobody
-  ]
-
 end
 
 to fire-at-target
-
   if engagement-target = nobody [ stop ]
 
   let hit-prob 0.25
-
-  if entrenched? [
-    set hit-prob 0.35
-  ]
+  if entrenched? [ set hit-prob 0.35 ]
 
   if random-float 1 < hit-prob [
     ask engagement-target [
       set strength strength - 10
     ]
   ]
-
 end
 
 to retreat
-
   set entrenched? false
   set engagement-target nobody
-
   rt random 360
-
-  if not [water?] of patch-ahead 1 [
-    fd 1
-  ]
-
+  if not [water?] of patch-ahead 1 [ fd 1 ]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; BUNKERS (FIXED TO EAST FALKLAND)
+;; BUNKERS (LIMITED TO 5)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup-bunkers
 
-  ask patches [
-    set bunker? false
-  ]
+  ask patches [ set bunker? false ]
 
-  if bunker-mode = "random" [
-    ask n-of 20 patches with [not water?] [
-      set bunker? true
-      set pcolor gray
-    ]
-  ]
+  let candidates patches with [not water?]
 
   if bunker-mode = "historical" [
-    let ridge-patches patches with [
-      elevation-level = 2 and
-      not water? and
-      pxcor > 0
+    set candidates patches with [
+      elevation-level = 2 and not water? and pxcor > 0
     ]
+  ]
 
-    if any? ridge-patches [
-      ask n-of (min list 25 count ridge-patches) ridge-patches [
-        set bunker? true
-        set pcolor gray
-      ]
+  if any? candidates [
+    ask n-of (min list 5 count candidates) candidates [
+      set bunker? true
+      set bunker-strength 100
+      set pcolor black
     ]
   ]
 
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; NGFS (NAVAL GUNFIRE SUPPORT)
+;; NGFS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to apply-ngfs
 
-  ;; clear previous red flashes first
   reset-ngfs-visuals
 
-  ;; fire interval control
-  if (ticks - ngfs-last-fire-tick) < ngfs-fire-interval [
-    stop
-  ]
-
+  if (ticks - ngfs-last-fire-tick) < ngfs-fire-interval [ stop ]
   set ngfs-last-fire-tick ticks
 
-  ;; get all Argentine troops
   let targets argentine-troops
 
-  ;; apply range constraint if realistic mode
   if ngfs-mode = "realistic" [
     set targets targets with [
       distance-to-coast patch-here <= ngfs-range
     ]
   ]
 
-  ;; if no valid targets, do nothing
   if not any? targets [ stop ]
 
-  ;; pick one random target
   let strike-target one-of targets
 
-  ;; track strike location
   set ngfs-last-strike-x [xcor] of strike-target
   set ngfs-last-strike-y [ycor] of strike-target
-
-  ;; count strike
   set ngfs-strikes ngfs-strikes + 1
 
-  ;; define impact center
   let impact-center [patch-here] of strike-target
 
-  ;; define impact area by asking from the patch context
   ask impact-center [
     ask patches in-radius 2 [
-      apply-ngfs-to-patch
+      apply-ngfs-to-patch impact-center
     ]
   ]
 
 end
 
-to apply-ngfs-to-patch
+to apply-ngfs-to-patch [center]
 
-  ;; VISUAL: flash red temporarily
   set pcolor red
 
-  ;; affect only Argentine troops
+  let dist distance center
+  let base-damage (20 - (dist * 5))
+  if base-damage < 0 [ set base-damage 0 ]
+
+  ;; bunker damage
+  if bunker? [
+    set bunker-strength bunker-strength - base-damage
+    if bunker-strength <= 0 [
+      set bunker? false
+      set pcolor brown
+    ]
+  ]
+
   ask turtles-here with [breed = argentine-troops] [
 
-    let terrain "open"
+    let damage base-damage
 
-    if ([trench?] of patch-here) = true [
-      set terrain "trench"
-    ]
-
-    if ([bunker?] of patch-here) = true [
-      set terrain "bunker"
-    ]
-
-    let damage 0
-
-    if terrain = "open"   [ set damage 20 ]
-    if terrain = "trench" [ set damage 10 ]
-    if terrain = "bunker" [ set damage 4  ]
+    if [trench?] of patch-here [ set damage damage * 0.5 ]
+    if [bunker?] of patch-here [ set damage damage * 0.2 ]
 
     set strength strength - damage
     set morale morale - 10
@@ -353,6 +315,7 @@ to apply-ngfs-to-patch
     set ngfs-total-damage ngfs-total-damage + damage
 
     if strength <= 0 [
+      set ngfs-total-kills ngfs-total-kills + 1
       die
     ]
   ]
@@ -360,25 +323,19 @@ to apply-ngfs-to-patch
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; VISUAL CLEANUP
+;; VISUAL RESET
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to reset-ngfs-visuals
   ask patches with [pcolor = red] [
-    if bunker? [
-      set pcolor gray
-    ]
-    if trench? and not bunker? [
-      set pcolor brown
-    ]
-    if not bunker? and not trench? [
-      set pcolor base-pcolor
-    ]
+    if bunker? [ set pcolor black ]
+    if trench? and not bunker? [ set pcolor brown ]
+    if not bunker? and not trench? [ set pcolor base-pcolor ]
   ]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; COAST DETECTION
+;; COAST
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report is-coastal? [p]
@@ -393,6 +350,45 @@ to-report distance-to-coast [p]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DATA EXPORT (ROBUST)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to export-ngfs-data
+
+  file-open "ngfs_data.csv"
+
+  ;; write header ONCE
+  if not csv-initialized? [
+    file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,troops_remaining,avg_strength,avg_morale,bunkers_remaining,trenches,last_x,last_y"
+    set csv-initialized? true
+  ]
+
+  let avg-strength mean [strength] of argentine-troops
+  let avg-morale mean [morale] of argentine-troops
+
+  file-print (word
+    ticks ","
+    bunker-mode ","
+    ngfs-mode ","
+    ngfs-range ","
+    ngfs-fire-interval ","
+    ngfs-strikes ","
+    ngfs-total-damage ","
+    ngfs-total-kills ","
+    count argentine-troops ","
+    avg-strength ","
+    avg-morale ","
+    count patches with [bunker?] ","
+    count patches with [trench?] ","
+    ngfs-last-strike-x ","
+    ngfs-last-strike-y
+  )
+
+  file-close
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; MAIN LOOP
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -400,6 +396,7 @@ to go
 
   run-argentine-troops
   apply-ngfs
+  export-ngfs-data
 
   tick
 
