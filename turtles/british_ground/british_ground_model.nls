@@ -1,0 +1,200 @@
+british-troops-own [
+  mobility
+  lethality
+  engagement-distance
+  max-accuracy-distance
+  strength
+  invulnerability
+  unit-type
+  status
+  target
+  retreat-threshold
+]
+
+; globals [ targets-captured ]
+
+to setup-ground
+  initialize-metrics
+end
+
+
+to initialize-metrics
+  set british-casualties 0
+  ; set argentine-casualties 0
+  set defenses-destroyed 0
+  set targets-captured 0
+end
+
+to setup-british-troops
+  reset-ticks
+
+  let initial-british-positions [
+    [-29 9] ; SBS
+    [-27 8] ; 3 Para
+    [-29 1] ; 40 Commando
+    [-28 -1] ; 2 Para
+    [-31 0] ; 45 Commando
+  ]
+
+  foreach initial-british-positions [ pos ->
+    create-british-troops 1 [
+      setxy item 0 pos item 1 pos
+      set color red
+      set size 2
+      set mobility 5
+      set lethality 30
+      set engagement-distance 7
+      set max-accuracy-distance 4
+      set strength 100
+      set invulnerability 0
+      set unit-type "infantry"
+      set status "advancing"
+      set target nobody
+      set retreat-threshold 20
+    ]
+  ]
+    
+end
+
+; advance towards target
+; if enemy detected within range, engage
+
+
+to move-british-troops
+  if strength <= 0 [
+    set british-casualties british-casualties + 1
+    die
+  ]
+
+  ifelse strength <= retreat-threshold [
+    set status "retreating"
+    retreat-british-troops
+  ] [
+    detect-argentine-troops
+
+    if target != nobody [
+      let dist distance target
+
+      ifelse dist <= engagement-distance [
+        ifelse dist <= max-accuracy-distance [
+          set status "engaging"
+        ] [
+          advance-british-troops
+        ]
+
+        engage-argentine-troops
+      ] [
+        set status "advancing"
+        advance-british-troops
+      ]
+    ]
+
+    ;; move to ridge and entrench
+    if status != "engaged" [
+      ; move-to-ridge
+    ]
+
+    ;; retreat if weakened
+    if strength < retreat-threshold [
+      ; retreat
+    ]
+
+    ;; die if strength is 0
+    if strength <= 0 [
+      die
+    ]
+
+    set label strength
+  ]
+end
+
+
+to detect-argentine-troops
+  if any? argentine-troops [
+
+    let enemy min-one-of argentine-troops [distance myself]
+    set target enemy
+    
+    face target
+  ]
+end
+
+
+to advance-british-troops
+  ;; If on a water patch, move to the nearest non-water patch
+  if [pcolor] of patch-here = white [
+    let dry-patch min-one-of patches with [pcolor != white] [[distance self] of myself]
+    if dry-patch != nobody [
+      move-to dry-patch
+    ]
+  ]
+
+  if target != nobody [
+    let dist distance target
+    let move-distance 0
+
+    ; ifelse dist > engagement-distance [
+    ;   ;; too far: close in
+    ;   set move-distance mobility * 0.15
+    ; ] [
+      ifelse dist > max-accuracy-distance [
+        ;; within engagement but not optimal accuracy: slow approach
+        set move-distance mobility * 0.05
+      ] [
+        ;; at optimal accuracy: hold position
+        set move-distance 0
+      ]
+    ; ]
+
+    ;; move towards target, but respect bounds and avoid water
+    if move-distance > 0 [
+      let target-heading towards target
+      let new-x xcor + move-distance * sin target-heading
+      let new-y ycor + move-distance * cos target-heading
+      
+      ;; clamp to bounds (ensure pursuit doesn't go out of bounds)
+      if new-x < min-pxcor [ set new-x min-pxcor ]
+      if new-x > max-pxcor [ set new-x max-pxcor ]
+      if new-y < min-pycor [ set new-y min-pycor ]
+      if new-y > max-pycor [ set new-y max-pycor ]
+      
+      let dest-patch patch new-x new-y
+      ifelse [pcolor] of dest-patch = white [
+        ;; Destination is water, find an alternative move
+        let non-water-neighbors neighbors with [pcolor != white]
+        if any? non-water-neighbors [
+          let best-neighbor min-one-of non-water-neighbors [[distance self] of target]
+          move-to best-neighbor
+        ]
+        ; if no non-water neighbors, do nothing this tick
+      ] [
+        ;; Destination is not water, move there
+        setxy new-x new-y
+      ]
+    ]
+  ]
+end
+
+
+to engage-argentine-troops
+  if target = nobody [ stop ]
+
+  let dist distance target
+  let hit-prob 0.4
+  set hit-prob hit-prob + hit-prob * 1 / dist
+
+  if random-float 1 < hit-prob [
+    ask target [
+      set strength strength - lethality
+    ]
+  ]
+end
+
+
+to retreat-british-troops
+
+end
+
+
+
+

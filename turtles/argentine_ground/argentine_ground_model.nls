@@ -1,0 +1,182 @@
+argentine-troops-own [
+  mobility
+  lethality
+  detection-range
+  engagement-distance
+  max-accuracy-distance
+  strength
+  invulnerability    ;; defensive bonus (0 = none, 1 = immune)
+  unit-type
+  status
+  target
+  retreat-threshold
+  entrenched?
+]
+
+to spawn-argentine-troops
+
+  let initial-argentine-positions [
+    [-25 11]
+    [-27 6]
+    [-30 -3]
+    [-19 -12]
+  ]
+
+  foreach initial-argentine-positions [ pos ->
+    create-argentine-troops 1 [
+      setxy item 0 pos item 1 pos
+      set color sky
+      set size 2
+
+      set strength 100
+      set lethality 10
+      set detection-range 4
+      set engagement-distance 3
+      set max-accuracy-distance 2
+      set retreat-threshold 20
+      ; set morale 80
+      set entrenched? false
+      set target nobody
+
+      ;; spawn on ridges if possible
+      ; if any? patches with [terrain != "water" and ridge?] [
+      ;   move-to one-of patches with [terrain != "water" and ridge?]
+      ; ]
+      ; if not any? patches with [terrain != "water" and ridge?] [
+      ;   move-to one-of patches with [terrain != "water"]
+      ; ]
+
+    ]
+  ]
+
+end
+
+to run-argentine-troops
+
+  ask argentine-troops [
+
+    ;; move to ridge and entrench
+    if not entrenched? [
+      move-to-ridge
+    ]
+
+    ;; detect enemy
+    detect-british
+
+    ;; fire
+    if target != nobody [
+      fire-at-target
+    ]
+
+    ;; retreat if weakened
+    if strength < retreat-threshold [
+      retreat
+    ]
+
+    ;; die if strength is 0
+    if strength <= 0 [
+      die
+    ]
+
+    set label strength
+
+  ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; RIDGE SEEKING (3 LINE TRICK)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to move-to-ridge
+
+  ; let best-patch max-one-of patches in-radius 2 [elevation]
+
+  ; if best-patch != nobody [
+
+    ; if [elevation] of best-patch > [elevation] of patch-here [
+
+    ;   face best-patch
+
+    ;   if [terrain] of patch-ahead 1 != "water" [
+    ;     fd 1
+    ;   ]
+
+    ; ]
+
+    ; if [elevation] of best-patch <= [elevation] of patch-here [
+    ;   set entrenched? true
+    ; ]
+
+  ; ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ENEMY DETECTION
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to detect-british
+
+  if any? british-troops [
+
+    let enemy min-one-of british-troops [distance myself]
+
+    if distance enemy <= 4 [
+      set target enemy
+      face enemy
+    ]
+
+    if distance enemy > 4 [
+      set target nobody
+    ]
+
+  ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; COMBAT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to fire-at-target
+
+  if target = nobody [ stop ]
+
+  let dist distance target
+  let hit-prob 0.25
+  set hit-prob hit-prob + hit-prob * 1 / dist
+
+  ;; entrenched defenders shoot better
+  if entrenched? [
+    set hit-prob hit-prob + 0.10
+  ]
+
+  if random-float 1 < hit-prob [
+    ask target [
+      set strength strength - lethality
+    ]
+  ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ARGENTINE RETREAT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to retreat
+
+  set entrenched? false
+  set target nobody
+
+  rt random 360
+
+  ; if [terrain] of patch-ahead 1 != "water" [
+  ;   fd 1
+  ; ]
+  ; water is white
+  ; if [pcolor] of patch-ahead 1 != [255 255 255] [
+  ;   fd 1
+  ; ]
+
+end

@@ -1,9 +1,0 @@
-bregulars-own [ name objx objy lethality accuracy engagement-distance ]
-
-; advance towards objective
-; if enemy detected within range, engage
-
-ask turtles with [ strength <= 0 ] [
-  die
-]
-

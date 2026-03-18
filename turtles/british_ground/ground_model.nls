@@ -37,13 +37,13 @@ to setup-ground
   
   ;; setup map: blue water boundaries, green ground in middle
   ;; water boundaries are outside the green area
-  ask patches [
-    ifelse (pxcor >= -16 and pxcor <= 16 and pycor >= -16 and pycor <= 16) [
-      set pcolor green  ;; green ground for spawning
-    ] [
-      set pcolor blue   ;; blue water boundaries
-    ]
-  ]
+  ; ask patches [
+  ;   ifelse (pxcor >= -16 and pxcor <= 16 and pycor >= -16 and pycor <= 16) [
+  ;     set pcolor green  ;; green ground for spawning
+  ;   ] [
+  ;     set pcolor blue   ;; blue water boundaries
+  ;   ]
+  ; ]
   
   setup-british
   setup-argentine
@@ -87,18 +87,18 @@ to setup-british
         setxy spawn-x (section-min-y + random-float row-height)
       ]
     ]
-    if unit-name = "marine" [
-      create-royal-marines 9 [
-        set-british-stats "royal-marine" magenta 1.15 0.20 0.10 1000 2.5 1.2 0.15
-        setxy spawn-x (section-min-y + random-float row-height)
-      ]
-    ]
-    if unit-name = "sas" [
-      create-special-forces 3 [
-        set-british-stats "special-force" turquoise 1.30 0.25 0.10 1000 3 2 0.20
-        setxy spawn-x (section-min-y + random-float row-height)
-      ]
-    ]
+    ; if unit-name = "marine" [
+    ;   create-royal-marines 9 [
+    ;     set-british-stats "royal-marine" magenta 1.15 0.20 0.10 1000 2.5 1.2 0.15
+    ;     setxy spawn-x (section-min-y + random-float row-height)
+    ;   ]
+    ; ]
+    ; if unit-name = "sas" [
+    ;   create-special-forces 3 [
+    ;     set-british-stats "special-force" turquoise 1.30 0.25 0.10 1000 3 2 0.20
+    ;     setxy spawn-x (section-min-y + random-float row-height)
+    ;   ]
+    ; ]
     
     set row-idx row-idx + 1
   ]

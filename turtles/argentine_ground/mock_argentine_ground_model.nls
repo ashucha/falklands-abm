@@ -1,0 +1,121 @@
+argies-own [
+  mobility
+  lethality
+  aggression
+  detection-range
+  engagement-distance
+  max-accuracy-distance
+  strength
+  invulnerability    ;; defensive bonus (0 = none, 1 = immune)
+  unit-type
+  target
+  status
+  retreat-threshold
+]
+
+; to setup-ground
+;   set retreat-threshold 0.2  ;; units die when health drops below 20%
+;   initialize-metrics
+; end
+
+
+; to initialize-metrics
+;   set argentine-casualties 0
+;   ; set argentine-casualties 0
+;   set defenses-destroyed 0
+;   set targets-captured 0
+; end
+
+to setup-argies
+  reset-ticks
+
+  let initial-argentine-positions [
+    [-29 9] ; SBS
+    [-27 8] ; 3 Para
+    [-29 1] ; 40 Commando
+    [-28 -1] ; 2 Para
+    [-31 0] ; 45 Commando
+  ]
+
+  foreach initial-argentine-positions [ pos ->
+    create-argies 1 [
+      setxy item 0 pos item 1 pos
+      set color blue
+      set size 2
+      set mobility 5
+      set lethality 0.7
+      set aggression 0.5
+      set detection-range 10
+      set engagement-distance 5
+      set max-accuracy-distance 5
+      set strength 100
+      set invulnerability 0
+      set target nobody
+      set unit-type "infantry"
+      set status "advancing"
+    ]
+  ]
+    
+end
+
+; advance towards target
+; if enemy detected within range, engage
+
+
+to move-argies
+  if strength <= 0 [
+    set argentine-casualties argentine-casualties + 1
+    die
+  ]
+
+  ifelse strength <= retreat-threshold [
+    set status "retreating"
+  ] [
+    set status "advancing"
+  ]
+
+  if status = "advancing" [
+    if target = nobody [
+      let all-targets (turtle-set brits)
+      target min-one-of all-targets [ distance myself ]
+    ]
+
+    if target != nobody [
+      let dist distance target
+      let move-distance 0
+
+      ifelse dist > engagement-distance [
+        ;; too far: close in
+        set move-distance mobility * 0.15
+      ] [
+        ifelse dist > max-accuracy-distance [
+          ;; within engagement but not optimal accuracy: slow approach
+          set move-distance mobility * 0.05
+        ] [
+          ;; at optimal accuracy: hold position
+          set move-distance 0
+        ]
+      ]
+
+      ;; move towards target, but respect bounds
+      if move-distance > 0 [
+        let target-heading towards target
+        let new-x xcor + move-distance * sin target-heading
+        let new-y ycor + move-distance * cos target-heading
+        
+        ;; clamp to bounds (ensure pursuit doesn't go out of bounds)
+        if new-x < min-pxcor [ set new-x min-pxcor ]
+        if new-x > max-pxcor [ set new-x max-pxcor ]
+        if new-y < min-pycor [ set new-y min-pycor ]
+        if new-y > max-pycor [ set new-y max-pycor ]
+        
+        setxy new-x new-y
+      ]
+    ]
+  ]
+
+  ; if status = "retreating" [
+
+  ; ]
+end
+
