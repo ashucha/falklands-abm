@@ -1,79 +1,95 @@
-frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier escort-angle]
+frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier escort-angle orbit-radius orbit-speed]
 
-to setup-frigates 
-  create-frigates 2 [  
-    set shape "default" ;; determines the icon to display the turtle
-    set name "type_22"
-    set speed 0.08
-    set state "straight"
-    set radar-range 30
-    set escort-angle (who * 180) mod 360
-    set gun-range 2
-    set sam-range 6
-    set mez-range 3
-    set turn-rate 0.8
-    set turn-rate 0.8
-    set size 2
-    set color green
-    setxy random-xcor random-ycor 
-    
-    let hermes one-of carriers with [name = "hms-hermes"]
-    let invincible one-of carriers with [name = "hms-invincible"]
-     
-    ifelse who mod 2 = 0 [
-  set escort-carrier invincible]
-    [set escort-carrier hermes] 
+to setup-frigates
+  ask carriers [
+
+    hatch-frigates 1 [
+      set name "type_21"
+      set color green
+      set size 2
+      set escort-carrier myself
+      set speed 0.07
+      set turn-rate 0.8
+      set radar-range 20
+      set gun-range 15
+      set sam-range 30
+      set mez-range 25
+      set state "straight"
+      set orbit-radius 16
+      set orbit-speed 2
+      set escort-angle 0
+      setxy ([xcor] of escort-carrier + 16) ([ycor] of escort-carrier + 0)
+      set heading (towards escort-carrier + 90)
+    ]
+    hatch-frigates 1 [
+      set name "type_21"
+      set color green
+      set size 2
+      set escort-carrier myself
+      set speed 0.07
+      set turn-rate 0.8
+      set radar-range 20
+      set gun-range 15
+      set sam-range 30
+      set mez-range 25
+      set state "straight"
+      set orbit-radius 16
+      set orbit-speed 2
+      set escort-angle 120
+      setxy ([xcor] of escort-carrier - 8) ([ycor] of escort-carrier + 13.9)
+      set heading (towards escort-carrier + 90)
+    ]
+    hatch-frigates 1 [
+      set name "type_21"
+      set color green
+      set size 2
+      set escort-carrier myself
+      set speed 0.07
+      set turn-rate 0.8
+      set radar-range 20
+      set gun-range 15
+      set sam-range 30
+      set mez-range 25
+      set state "straight"
+      set orbit-radius 16
+      set orbit-speed 2
+      set escort-angle 240
+      setxy ([xcor] of escort-carrier - 8) ([ycor] of escort-carrier - 13.9)
+      set heading (towards escort-carrier + 90)
+    ]
+
+    hatch-frigates 1 [
+      set name "type_22"
+      set color green
+      set size 2
+      set escort-carrier myself
+      set speed 0.08
+      set turn-rate 0.8
+      set radar-range 30
+      set gun-range 2
+      set sam-range 6
+      set mez-range 3
+      set state "straight"
+      set orbit-radius 16
+      set orbit-speed 2
+      set escort-angle 60
+      setxy ([xcor] of escort-carrier + 8) ([ycor] of escort-carrier + 13.9)
+      set heading (towards escort-carrier + 90)
+    ]
   ]
-  
-  create-frigates 6 [ 
-    set shape "default" ;; determines the icon to display the turtle
-    set name "type_21"
-    set speed 0.07
-    set state "straight"
-    set radar-range 20
-    set escort-angle (who * 60) mod 360
-    set gun-range 15
-    set sam-range 30
-    set mez-range 25 ;; double check
-    set turn-rate 0.8
-    set size 2
-    set color green
-    setxy random-xcor random-ycor 
-    
-    let hermes one-of carriers with [name = "hms-hermes"]
-    let invincible one-of carriers with [name = "hms-invincible"]
-     
-    ifelse who mod 2 = 0 [
-  set escort-carrier invincible
-][
-  set escort-carrier hermes
-]
-    
-    ]   
-  
 end
-
 
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
   ask frigates [
-    ifelse state = "turning" [
-      let delta subtract-headings new-heading heading
-      ifelse abs (delta) > turn-rate [ ;; need to keep turning
-        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
-      ] [
-        set state "straight"
-      ]
-    ] [
-      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
-      if ticks mod 500 = 0 [
-        if random 100 > 30 [ 
-          set new-heading new-heading + 45 - random 90
-          set state "turning"
-        ]
-      ]
-    ]
-    forward speed
+
+    set escort-angle (escort-angle + orbit-speed) mod 360
+    let rad-angle escort-angle * pi / 180
+    let new-x ([xcor] of escort-carrier + orbit-radius * cos rad-angle)
+    let new-y ([ycor] of escort-carrier + orbit-radius * sin rad-angle)
+    setxy min list max-pxcor max list min-pxcor new-x
+          min list max-pycor max list min-pycor new-y
+    set heading (towards escort-carrier + 90)
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
@@ -113,8 +129,7 @@ to scan-and-respond
     let others other frigates in-radius 3
     if any? others [
       rt random 60
-]
-;    move-frigates
+    ]
   ]
 end
 
