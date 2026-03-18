@@ -43,9 +43,7 @@ breed [ frigates frigate ]
 breed [ destroyers destroyer ]
 breed [ amphibs amphib ]
 breed [ events event ]
-breed [ frigates frigate ]
-breed [ destroyers destroyer ]
-breed [ amphibs amphib ]
+
 ;; all turtles have these variables (really coarse-grained inheritance)
 turtles-own [ strength state speed ]
 
@@ -136,23 +134,6 @@ to launch-daggers
     set state "ingress"
     set speed 1.1
   ]
-end
-
-;; this is the core loop that runs all of the turtles' logic each tick
-to go
-  advance-time minutes-per-tick
-  update-date-string
-  move-carriers
-  move-frigates
-  move-destroyers
-  move-shars
-  move-daggers
-  spawn-dagger?
-  spawn-target?
-  ask carriers [ spawn-shars? ]
-  ask frigates [ execute-logic ]
-  ask destroyers [ execute-logic-destroyer ]
-  tick
 end
 
 to move-daggers
