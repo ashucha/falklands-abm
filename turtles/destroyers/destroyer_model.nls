@@ -26,11 +26,14 @@ destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-
+      
+      let target-patch patch new-x new-y
+if [ocean?] of target-patch [
 setxy min list max-pxcor max list min-pxcor new-x
       min list max-pycor max list min-pycor new-y
       
       set heading (towards escort-carrier + 90)
+      ]
     ]
   ]
 end
