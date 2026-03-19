@@ -18,43 +18,51 @@ to setup-carriers
     (list miles-to-patches 50     miles-to-patches 25)
     (list miles-to-patches -20    miles-to-patches -12)
   )
-  let i 1
-  while [i < length shar-cap-list] [
-    let c (item i shar-cap-list)
-    ask patch (item 0 c) (item 1 c) [ set pcolor yellow ]
-    set i i + 1
+  if show-caps? [
+    let i 1
+    while [i < length shar-cap-list] [
+      let c (item i shar-cap-list)
+      ask patch (item 0 c) (item 1 c) [ set pcolor yellow ]
+      set i i + 1
+    ]
   ]
+  
+  let tf-x 200
+  let tf-y 0
+  let offset 5
   
   create-carriers 1 [ 
     set shape "hms-invincible" ;; determines the icon to display the turtle
     set name "hms-invincible"
     set shar-count 8
-    set speed 0.04
+    set speed 0;0.04
     set state "straight"
     set striking? false
     set alert-avail? true
     set turn-rate 0.5
     set size 5
     set color gray
-    move-to one-of patches with [
-      ocean? and all? patches in-radius 3 [ ocean? ]
-]
+    setxy (tf-x + offset - random 10) (tf-y + offset - random 10)
+;     move-to one-of patches with [
+;       ocean? and all? patches in-radius 3 [ ocean? ]
+;     ]
   ]
   
   create-carriers 1 [ 
     set shape "hms-hermes" ;; determines the icon to display the turtle
     set name "hms-hermes"
     set shar-count 12
-    set speed 0.04
+    set speed 0;0.04
     set state "straight"
     set striking? false
     set alert-avail? true
     set turn-rate 0.5
     set size 5
     set color gray
-    move-to one-of patches with [
-      ocean? and all? patches in-radius 2 [ ocean? ]
-]
+    setxy (tf-x + offset - random 10) (tf-y + offset - random 10)
+;     move-to one-of patches with [
+;       ocean? and all? patches in-radius 2 [ ocean? ]
+;     ]
   ]
 end
 
