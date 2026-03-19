@@ -26,7 +26,8 @@ destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-let target-patch min-one-of (patches in-radius 5) with [ocean?] [distancexy new-x new-y]
+let target-patch min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 4] [distancexy new-x new-y]
       
       ;; Move to that specific ocean patch
       ifelse target-patch != nobody [
@@ -57,11 +58,12 @@ to move-destroyers
       let target-patch patch new-x new-y
 
       ifelse target-patch != nobody [
-        ifelse [ocean?] of target-patch [
+        ifelse [ocean? and count neighbors with [ocean?] >= 5] of target-patch [
           setxy min list max-pxcor max list min-pxcor new-x
                 min list max-pycor max list min-pycor new-y
         ] [
-          let closest-ocean min-one-of (patches in-radius 5) with [ocean?] [
+          let closest-ocean min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 5] [
             distancexy new-x new-y
           ]
           if closest-ocean != nobody [ move-to closest-ocean ]
