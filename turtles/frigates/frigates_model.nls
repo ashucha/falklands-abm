@@ -7,14 +7,13 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
       set name "type_21"
       set color green
       set size 2
-
       set escort-carrier myself
       set speed 0.07
       set turn-rate 0.8
       set radar-range 20
       set gun-range 15
       set sam-range 30
-      set mez-range 25
+      set mez-range 25 
       set state "straight"
 
       set orbit-radius 16
@@ -26,18 +25,27 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-
-setxy min list max-pxcor max list min-pxcor new-x
-      min list max-pycor max list min-pycor new-y
+let target-patch min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 4] [distancexy new-x new-y]
+      ;;edit: do an extra check to make sure the surrounding patches are at most half land
       
-      set heading (towards escort-carrier + 90)
+      ;; Move to that specific ocean patch
+      ifelse target-patch != nobody [
+        move-to target-patch
+      ] [
+        move-to escort-carrier]
+      
+ifelse distance escort-carrier > 0 [
+  set heading towards escort-carrier + 90
+] [
+  set heading random 360
+      ]
     ]
 
     hatch-frigates 1 [
       set name "type_22"
       set color green
       set size 2
-
       set escort-carrier myself
       set speed 0.08
       set turn-rate 0.8
@@ -55,13 +63,23 @@ setxy min list max-pxcor max list min-pxcor new-x
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-
-setxy min list max-pxcor max list min-pxcor new-x
-      min list max-pycor max list min-pycor new-y
+let target-patch min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 5] [distancexy new-x new-y]
       
-      set heading (towards escort-carrier + 90)
+      ;; Move to that specific ocean patch
+      ifelse target-patch != nobody [
+        move-to target-patch
+      ] [
+        move-to escort-carrier]
+      
+ifelse distance escort-carrier > 0 [
+  set heading towards escort-carrier + 90
+] [
+  set heading random 360
+      ]
     ]
   ]
+  
 end
        
        
@@ -69,14 +87,26 @@ end
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
   ask frigates [
-
     set escort-angle (escort-angle + orbit-speed) mod 360
-    let rad-angle escort-angle * pi / 180
     let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
     let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-    setxy min list max-pxcor max list min-pxcor new-x
-          min list max-pycor max list min-pycor new-y
-    set heading (towards escort-carrier + 90)
+    let target-patch patch new-x new-y
+
+      ifelse target-patch != nobody [
+        ifelse [ocean?] of target-patch [
+          setxy min list max-pxcor max list min-pxcor new-x
+                min list max-pycor max list min-pycor new-y
+        ] [
+          let closest-ocean min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 5] [
+            distancexy new-x new-y
+          ]
+          if closest-ocean != nobody [ move-to closest-ocean ]
+        ]
+      ] [
+        setxy min list max-pxcor max list min-pxcor new-x
+              min list max-pycor max list min-pycor new-y
+      ]
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
