@@ -14,7 +14,7 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
       set radar-range 20
       set gun-range 15
       set sam-range 30
-      set mez-range 25
+      set mez-range 25 
       set state "straight"
 
       set orbit-radius 16
@@ -26,11 +26,18 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+let target-patch patch new-x new-y
 
-setxy min list max-pxcor max list min-pxcor new-x
-      min list max-pycor max list min-pycor new-y
-      
-      set heading (towards escort-carrier + 90)
+  ifelse [ocean?] of target-patch [
+        setxy min list max-pxcor max list min-pxcor new-x
+        min list max-pycor max list min-pycor new-y
+  ] [
+    let closest-ocean min-one-of patches with [ocean?] [
+      distancexy new-x new-y
+    ]
+    move-to closest-ocean
+  ]
+  set heading (towards escort-carrier + 90) ]
     ]
 
     hatch-frigates 1 [
@@ -55,13 +62,21 @@ setxy min list max-pxcor max list min-pxcor new-x
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+let target-patch patch new-x new-y
 
-setxy min list max-pxcor max list min-pxcor new-x
-      min list max-pycor max list min-pycor new-y
-      
-      set heading (towards escort-carrier + 90)
+  ifelse [ocean?] of target-patch [
+        setxy min list max-pxcor max list min-pxcor new-x
+        min list max-pycor max list min-pycor new-y
+  ] [
+    let closest-ocean min-one-of patches with [ocean?] [
+      distancexy new-x new-y
     ]
+    move-to closest-ocean
   ]
+
+  set heading (towards escort-carrier + 90)
+    ]
+  
 end
        
        
@@ -74,8 +89,13 @@ to move-frigates
     let rad-angle escort-angle * pi / 180
     let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
     let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-    setxy min list max-pxcor max list min-pxcor new-x
-          min list max-pycor max list min-pycor new-y
+    let target-patch patch new-x new-y
+
+ifelse [ocean?] of target-patch [
+  setxy new-x new-y
+] [
+  set escort-angle (escort-angle + 10) mod 360
+]
     set heading (towards escort-carrier + 90)
     
     ;; UI stuff, useful for debugging
