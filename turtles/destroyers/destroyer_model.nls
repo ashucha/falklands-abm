@@ -26,14 +26,19 @@ destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-let target-patch patch new-x new-y
+let target-patch min-one-of patches with [ocean?] [distancexy new-x new-y]
       
-      ifelse [ocean?] of target-patch [
-  setxy new-x new-y
+      ;; Move to that specific ocean patch
+      ifelse target-patch != nobody [
+        move-to target-patch
+      ] [
+        move-to escort-carrier]
+      
+ifelse distance escort-carrier > 0 [
+  set heading towards escort-carrier + 90
 ] [
-  set escort-angle (escort-angle + 10) mod 360
+  set heading random 360
 ]
-    set heading (towards escort-carrier + 90)
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
@@ -43,27 +48,28 @@ let target-patch patch new-x new-y
   ]
 end
 
-
-;; find location of "events"/maybe change pcolor?
 to move-destroyers
   ask destroyers [
-    set escort-angle (escort-angle + orbit-speed) mod 360
-    let rad-angle escort-angle * pi / 180
-    let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
-    let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
-    let target-patch patch new-x new-y
+      set escort-angle (escort-angle + orbit-speed) mod 360
 
-  ifelse [ocean?] of target-patch [
+      let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
+      let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+      let target-patch patch new-x new-y
+
+      ifelse target-patch != nobody [
+        ifelse [ocean?] of target-patch [
+          setxy min list max-pxcor max list min-pxcor new-x
+                min list max-pycor max list min-pycor new-y
+        ] [
+          let closest-ocean min-one-of patches with [ocean?] [
+            distancexy new-x new-y
+          ]
+          if closest-ocean != nobody [ move-to closest-ocean ]
+        ]
+      ] [
         setxy min list max-pxcor max list min-pxcor new-x
-        min list max-pycor max list min-pycor new-y
-  ] [
-    let closest-ocean min-one-of patches with [ocean?] [
-      distancexy new-x new-y
-    ]
-    move-to closest-ocean
-  ]
-
-  set heading (towards escort-carrier + 90)
+              min list max-pycor max list min-pycor new-y
+      ]
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
@@ -71,6 +77,7 @@ to move-destroyers
     ] [ set label "" ] 
   ]
 end
+
 
 to execute-logic-destroyer
   ask destroyers [

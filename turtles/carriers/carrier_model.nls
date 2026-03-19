@@ -132,7 +132,14 @@ to move-carriers
         ]
       ]
     ]
-    forward speed
+let next-patch patch-ahead speed
+
+ifelse [ocean?] of next-patch [
+  forward speed
+] [
+  rt 20
+  set state "turning"
+]
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [ 
