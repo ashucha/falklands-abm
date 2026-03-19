@@ -21,28 +21,34 @@ end
 to move-amphibs
   ask amphibs [
     if state = "convoy" [ ;; just move with the flotilla
-      if my-flotilla != nobody [ 
-        ifelse [state] of my-flotilla = "phase3" [ ;; once the flotilla reaches the 2nd to last waypoint, begin landing approach
-          set state "land"
-        ][
+      ifelse my-flotilla != nobody [ 
+        if [state] of my-flotilla = "phase1" or [state] of my-flotilla = "phase2" [
           set heading [heading] of my-flotilla
           forward speed
         ]
+        if [state] of my-flotilla = "phase3" [ ;; begin condensing to navigate around the land
+          set state "approach"
+        ]
+      ][
+        set state "approach"
       ]
     ]
-    if state = "land" [
-      ifelse distance patch lp-x lp-y < (1.5 * speed) [ ;; if the amphib has reached the landing point
-        set amphibs-landed amphibs-landed + 1
-        die ;; (Q@Grace) is this the right behavior? or do we still want these to be able to be engaged and bombed by FAA?
-      ][
-        facexy lp-x lp-y
-        forward speed
-      ]
+    if state = "approach" [
+       ;; else approach the landing point
+        let wp (item w-i waypoints) 
+        ifelse distance patch (item 0 wp) (item 1 wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+          face patch (item 0 wp) (item 1 wp)
+          forward speed
+        ][ 
+          set w-i w-i + 1 
+          if w-i >= length waypoints [ ;; if the amphibs have landed. 
+            set amphibs-landed amphibs-landed + 1
+            die ;; (Q@Grace) is this the right behavior? or do we still want these to be able to be engaged and bombed by FAA?
+          ]
+        ]       
     ]
   ]
 end
-
-
 
 ;; find location of "events"/maybe change pcolor?
 to move-amphibs-old

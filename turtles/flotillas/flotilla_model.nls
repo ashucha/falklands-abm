@@ -1,4 +1,4 @@
-flotillas-own [ flotilla-type waypoints w-i phase-distance amphib-radius ]
+flotillas-own [ flotilla-type next-wp phase-distance amphib-radius ]
 
 to setup-flotillas
   setup-amphib-flotilla
@@ -8,20 +8,24 @@ to setup-amphib-flotilla
   create-flotillas 1 [
     set flotilla-type "amphib"
     set waypoints (list
-      (list 47 20)
+      (list 47 20) ;; commented out for testing
       (list 5  29)
       (list -2 11) 
       (list -2 9)
-      (list 5  7)
+;       (list  3 7)
     ) 
     
-    foreach waypoints [ w ->
-      ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+    ;; optional coloring to see the waypoints
+    if show-waypoints? [
+      foreach waypoints [ w ->
+        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+      ]
     ]
      
     set w-i 0
     set amphib-radius 2
     setxy 200 0
+;     setxy 74 13
     set color violet
     set size 0
     set speed 1
@@ -42,11 +46,23 @@ to setup-amphib-flotilla
       set troop-count 50
       set size 1.5
       set color brown
-      let landing-point (item (length [waypoints] of myself - 1) [waypoints] of myself)
-      set lp-x (item 0 landing-point)
-      set lp-y (item 1 landing-point)
+
+      set w-i 0
+      set waypoints (list
+        (list -2 11) 
+        (list -2 9)
+        (list  3 7))
+
+      ;; optional coloring to see the waypoints
+      if show-waypoints? [
+        foreach waypoints [ w ->
+          ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+        ]
+      ]
+      
       let ar [amphib-radius] of myself
       set my-flotilla myself 
+      
       setxy ([xcor] of myself + ar - random-float (2 * ar)) ([ycor] of myself + ar - random-float (2 * ar))
     ]
   ]
@@ -66,7 +82,7 @@ end
 
 
 to advance
-  let next-wp (item w-i waypoints)
+  set next-wp (item w-i waypoints)
   let phase-wp (item (length waypoints - 1) waypoints)
   ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
     face patch (item 0 next-wp) (item 1 next-wp)
@@ -78,8 +94,13 @@ to advance
     ]
   ] 
   
-  if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
-    set state "phase2"
-  ] 
-  if w-i = (length waypoints - 1) [ set state "phase3" ]
+  
+  ifelse w-i = (length waypoints - 2) [ set state "phase3" ][
+    ifelse w-i = (length waypoints - 1) [ die ][
+      if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
+        set state "phase2"
+      ] 
+    ]
+  ]
+  
 end

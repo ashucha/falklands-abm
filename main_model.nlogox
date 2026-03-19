@@ -61,7 +61,7 @@ breed [ faas faa ]
 breed [ flotillas flotilla ]
 
 ;; all turtles have these variables (really coarse-grained inheritance)
-turtles-own [ strength state speed ]
+turtles-own [ strength state speed waypoints w-i ]
 
 ;; only breeds have these variables
 daggers-own [ bombs launch aircraft ]  
@@ -218,6 +218,10 @@ end
       <pen interval="1.0" mode="0" display="# FAA Jets" color="-817084" legend="true">
         <setup></setup>
         <update>plot faa-jets</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Amphibs Landed" color="-10402772" legend="true">
+        <setup></setup>
+        <update>plot amphibs-landed</update>
       </pen>
     </plot>
   </widgets>
