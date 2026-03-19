@@ -5,6 +5,9 @@ to setup-flotillas
 end
 
 to setup-amphib-flotilla
+  set hermes-cap? 9
+  set invincible-cap? 1
+  
   create-flotillas 1 [
     set flotilla-type "amphib"
     set waypoints (list
@@ -30,7 +33,7 @@ to setup-amphib-flotilla
     set size 0
     set speed 1
     set state "phase1" 
-    set phase-distance 75 ;; set so the destroyers/frigates move to final positions when flotilla is 75 patches from landing point
+    set phase-distance 125 ;; set so the destroyers/frigates move to final positions when flotilla is 75 patches from landing point
     ;; TODO: should this be a real distance? @Katelyn
     
     hatch-amphibs 25 [
@@ -71,36 +74,32 @@ end
 to move-flotillas
   ask flotillas [
     if flotilla-type = "amphib" [
-      advance
+      set next-wp (item w-i waypoints)
+      let phase-wp (item (length waypoints - 1) waypoints)
+      ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+        face patch (item 0 next-wp) (item 1 next-wp)
+        forward speed
+      ][ 
+        set w-i w-i + 1 
+        if w-i >= length waypoints [
+          die
+        ]
+      ] 
+      
+      
+      ifelse w-i = (length waypoints - 2) [ set state "phase3" ][
+        ifelse w-i = (length waypoints - 1) [ die ][
+          if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
+            set hermes-cap? 8
+            set invincible-cap? 10
+            set state "phase2"
+          ] 
+        ]
+      ]
       
       ifelse show-stat? [
         set label state
       ][ set label "" ]
     ]
   ]
-end
-
-
-to advance
-  set next-wp (item w-i waypoints)
-  let phase-wp (item (length waypoints - 1) waypoints)
-  ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
-    face patch (item 0 next-wp) (item 1 next-wp)
-    forward speed
-  ][ 
-    set w-i w-i + 1 
-    if w-i >= length waypoints [
-      die
-    ]
-  ] 
-  
-  
-  ifelse w-i = (length waypoints - 2) [ set state "phase3" ][
-    ifelse w-i = (length waypoints - 1) [ die ][
-      if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
-        set state "phase2"
-      ] 
-    ]
-  ]
-  
 end
