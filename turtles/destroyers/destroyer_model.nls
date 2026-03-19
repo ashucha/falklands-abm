@@ -91,21 +91,20 @@ end
 
 to scan-and-respond-destroyer 
   ask destroyers [ 
-    let lead-carrier min-one-of carriers [distance myself]
-    let d distance lead-carrier
+    let d distance escort-carrier
     let ideal-radius 22
     let band 2
     
     if d > ideal-radius + band [
-      set new-heading towards lead-carrier
+      set new-heading towards escort-carrier
       set state "turning"
     ]
     if d < ideal-radius - band [
-      set new-heading (towards lead-carrier + 180) mod 360
+      set new-heading (towards escort-carrier + 180) mod 360
       set state "turning"
     ]
     if d >= ideal-radius - band and d <= ideal-radius + band [
-      set new-heading (towards lead-carrier + 90) mod 360
+      set new-heading (towards escort-carrier + 90) mod 360
       set state "turning"
     ]
     let others other frigates in-radius 3
