@@ -7,7 +7,6 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
       set name "type_21"
       set color green
       set size 2
-
       set escort-carrier myself
       set speed 0.07
       set turn-rate 0.8
@@ -38,13 +37,11 @@ let target-patch patch new-x new-y
     move-to closest-ocean
   ]
   set heading (towards escort-carrier + 90) ]
-    ]
 
     hatch-frigates 1 [
       set name "type_22"
       set color green
       set size 2
-
       set escort-carrier myself
       set speed 0.08
       set turn-rate 0.8
@@ -76,6 +73,7 @@ let target-patch patch new-x new-y
 
   set heading (towards escort-carrier + 90)
     ]
+]
   
 end
        
