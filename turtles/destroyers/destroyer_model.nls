@@ -21,19 +21,24 @@ destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-
 
       if who mod 4 = 0 [ set escort-angle 30 ]
       if who mod 4 = 1 [ set escort-angle 120 ]
-      if who mod 4 = 2 [ set escort-angle 210 ]
+      if who mod 4 = 2 [ set escort-angle 210 ] 
       if who mod 4 = 3 [ set escort-angle 300 ]
 
 let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
 let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+let target-patch patch new-x new-y
       
-      let target-patch patch new-x new-y
-if [ocean?] of target-patch [
-setxy min list max-pxcor max list min-pxcor new-x
-      min list max-pycor max list min-pycor new-y
-      
-      set heading (towards escort-carrier + 90)
-      ]
+      ifelse [ocean?] of target-patch [
+  setxy new-x new-y
+] [
+  set escort-angle (escort-angle + 10) mod 360
+]
+    set heading (towards escort-carrier + 90)
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ] 
     ]
   ]
 end
