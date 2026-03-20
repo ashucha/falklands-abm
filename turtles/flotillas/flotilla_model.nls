@@ -27,7 +27,12 @@ to setup-amphib-flotilla
      
     set w-i 0
     set amphib-radius 2
-    setxy 200 0
+    ;; set spawn location to be inbetween of two carriers
+    if any? carriers [
+      let cx mean [xcor] of carriers
+      let cy mean [ycor] of carriers
+      setxy cx cy
+    ]
 ;     setxy 74 13
     set color violet
     set size 0
