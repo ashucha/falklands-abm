@@ -10,6 +10,15 @@ globals [
   ngfs-last-fire-tick
   ngfs-mode
   bunker-mode
+  ngfs-enabled?
+  suppression-enabled?
+  surrender-enabled?
+  auto-export?
+  bunker-default-capacity
+  trench-damage-mult
+  bunker-damage-mult
+  bunker-suppression-mult
+  ngfs-suppression-ticks
 
   ;; analytics
   ngfs-strikes
@@ -20,6 +29,12 @@ globals [
   bunkers-destroyed
   surrenders-total
   arg-strength-loss-total
+  bunker-entries-total
+  panic-events-total
+  suppression-events-total
+  ngfs-open-exposures
+  ngfs-trench-exposures
+  ngfs-bunker-exposures
 
   csv-initialized?
   export-file
@@ -48,6 +63,8 @@ turtles-own [
   engagement-target
   in-bunker?
   suppressed-ticks
+  bunker-target
+  panic-move?
 ]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -62,12 +79,53 @@ to setup
   if bunker-mode != "historical" and bunker-mode != "random" [
     set bunker-mode "historical"
   ]
+  if ngfs-mode != "realistic" and ngfs-mode != "all-map" [
+    set ngfs-mode "realistic"
+  ]
+  if not is-number? ngfs-range [
+    set ngfs-range 9
+  ]
+  if not is-number? ngfs-fire-interval [
+    set ngfs-fire-interval 4
+  ]
+  if ngfs-range < 1 [ set ngfs-range 1 ]
+  if ngfs-fire-interval < 1 [ set ngfs-fire-interval 1 ]
+  if ngfs-enabled? != true and ngfs-enabled? != false [
+    set ngfs-enabled? true
+  ]
+  if suppression-enabled? != true and suppression-enabled? != false [
+    set suppression-enabled? true
+  ]
+  if surrender-enabled? != true and surrender-enabled? != false [
+    set surrender-enabled? true
+  ]
+  if auto-export? != true and auto-export? != false [
+    set auto-export? true
+  ]
+  if not is-number? bunker-default-capacity [
+    set bunker-default-capacity 1
+  ]
+  if bunker-default-capacity < 1 [
+    set bunker-default-capacity 1
+  ]
+  if not is-number? trench-damage-mult [
+    set trench-damage-mult 0.5
+  ]
+  if not is-number? bunker-damage-mult [
+    set bunker-damage-mult 0.2
+  ]
+  if not is-number? bunker-suppression-mult [
+    set bunker-suppression-mult 0.5
+  ]
+  if not is-number? ngfs-suppression-ticks [
+    set ngfs-suppression-ticks 2
+  ]
+  if ngfs-suppression-ticks < 0 [
+    set ngfs-suppression-ticks 0
+  ]
 
   set csv-initialized? false
-  set ngfs-range 9
-  set ngfs-fire-interval 4
   set ngfs-last-fire-tick 0
-  set ngfs-mode "realistic"
 
   ;; set to false if you do not want heatmap by default
   if show-heatmap? != true and show-heatmap? != false [
@@ -82,6 +140,12 @@ to setup
   set bunkers-destroyed 0
   set surrenders-total 0
   set arg-strength-loss-total 0
+  set bunker-entries-total 0
+  set panic-events-total 0
+  set suppression-events-total 0
+  set ngfs-open-exposures 0
+  set ngfs-trench-exposures 0
+  set ngfs-bunker-exposures 0
 
   set export-file (word "ngfs_data_" bunker-mode "_" ngfs-mode ".csv")
   if file-exists? export-file [
@@ -154,6 +218,8 @@ to spawn-argentine-battalions
     set engagement-target nobody
     set in-bunker? false
     set suppressed-ticks 0
+    set bunker-target nobody
+    set panic-move? false
 
     move-to one-of patches with [not water?]
 
@@ -168,8 +234,11 @@ to run-argentine-troops
     set color red
 
     ;; suppression decay
-    if suppressed-ticks > 0 [
+    if suppression-enabled? and suppressed-ticks > 0 [
       set suppressed-ticks suppressed-ticks - 1
+    ]
+    if not suppression-enabled? [
+      set suppressed-ticks 0
     ]
 
     ;; if bunker destroyed under them, they are no longer protected
@@ -182,12 +251,14 @@ to run-argentine-troops
     check-surrender
 
     ;; if the unit surrendered this tick, it is gone
-    if not any? argentine-troops with [self = myself] [
+    if not member? self sort turtles [
       stop
     ]
 
     ;; try to enter bunker if standing on one
     occupy-bunker-if-possible
+
+    evaluate-panic
 
     ;; if pinned and not in bunker, they mostly hold / freeze
     let pinned? (suppressed-ticks > 0 and not in-bunker?)
@@ -204,7 +275,8 @@ to run-argentine-troops
     ] [
 
       if not pinned? [
-        seek-bunker
+        choose-bunker-target
+        move-to-bunker
         occupy-bunker-if-possible
       ]
 
@@ -223,9 +295,9 @@ to run-argentine-troops
           move-to-ridge
         ]
 
-        ;; suppression + low morale can force movement
-        if morale < 40 and suppressed-ticks > 0 [
-          retreat
+        ;; panic movement prioritizes cover over random retreat
+        if panic-move? and not in-bunker? [
+          panic-retreat-to-cover
         ]
 
         detect-british
@@ -234,7 +306,7 @@ to run-argentine-troops
           fire-at-target
         ]
 
-        if strength < 30 [
+        if strength < 30 and not panic-move? [
           retreat
         ]
       ]
@@ -244,6 +316,27 @@ to run-argentine-troops
 
   ]
 
+end
+
+to evaluate-panic
+  set panic-move? false
+  if in-bunker? [ stop ]
+  if morale < 25 [
+    set panic-move? true
+    set panic-events-total panic-events-total + 1
+    stop
+  ]
+  if strength < 20 [
+    set panic-move? true
+    set panic-events-total panic-events-total + 1
+    stop
+  ]
+  if suppressed-ticks > 0 and (morale < 40 or strength < 35) [
+    if random-float 1 < 0.35 [
+      set panic-move? true
+      set panic-events-total panic-events-total + 1
+    ]
+  ]
 end
 
 to update-visual-state
@@ -300,14 +393,32 @@ to move-to-ridge
 
 end
 
-to seek-bunker
+to choose-bunker-target
 
-  if in-bunker? [ stop ]
+  if in-bunker? [
+    set bunker-target nobody
+    stop
+  ]
 
   ;; only seek bunker when stressed
-  if morale > 60 and strength > 70 and suppressed-ticks = 0 [ stop ]
+  if morale > 60 and strength > 70 and suppressed-ticks = 0 [
+    set bunker-target nobody
+    stop
+  ]
 
-  let nearby-bunker min-one-of
+  ;; keep current target if it is still legal and has room
+  if bunker-target != nobody [
+    let target-has-bunker? [bunker?] of bunker-target
+    let target-alive? ([bunker-strength] of bunker-target > 0)
+    let target-space?
+      ([count turtles-here with [breed = argentine-troops and in-bunker?]] of bunker-target) <
+      ([bunker-capacity] of bunker-target)
+    if target-has-bunker? and target-alive? and target-space? [
+      stop
+    ]
+  ]
+
+  set bunker-target min-one-of
     (patches in-radius 5 with [
       bunker? and
       bunker-strength > 0 and
@@ -315,13 +426,14 @@ to seek-bunker
     ])
     [distance myself]
 
-  if nearby-bunker != nobody [
-    face nearby-bunker
-    if not [water?] of patch-ahead 1 [
-      fd 1
-    ]
-  ]
+end
 
+to move-to-bunker
+  if bunker-target = nobody [ stop ]
+  face bunker-target
+  if not [water?] of patch-ahead 1 [
+    fd 1
+  ]
 end
 
 to occupy-bunker-if-possible
@@ -330,8 +442,13 @@ to occupy-bunker-if-possible
     let occupants count turtles-here with [breed = argentine-troops and in-bunker?]
 
     if occupants < [bunker-capacity] of patch-here [
+      if not in-bunker? [
+        set bunker-entries-total bunker-entries-total + 1
+      ]
       set in-bunker? true
       set entrenched? true
+      set bunker-target nobody
+      set panic-move? false
     ]
   ]
 
@@ -381,6 +498,7 @@ end
 to retreat
   set entrenched? false
   set in-bunker? false
+  set bunker-target nobody
   set engagement-target nobody
   rt random 360
   if not [water?] of patch-ahead 1 [
@@ -388,9 +506,52 @@ to retreat
   ]
 end
 
+to panic-retreat-to-cover
+  choose-bunker-target
+  if bunker-target != nobody [
+    move-to-bunker
+    occupy-bunker-if-possible
+    stop
+  ]
+  let nearby-trench one-of patches in-radius 3 with [trench? and not water?]
+  if nearby-trench != nobody [
+    face nearby-trench
+    if not [water?] of patch-ahead 1 [
+      fd 1
+      stop
+    ]
+  ]
+  retreat
+end
+
+to apply-suppression [ticks-to-add]
+  if not suppression-enabled? [
+    set suppressed-ticks 0
+    stop
+  ]
+  let old suppressed-ticks
+  set suppressed-ticks max list suppressed-ticks ticks-to-add
+  if old = 0 and suppressed-ticks > 0 [
+    set suppression-events-total suppression-events-total + 1
+  ]
+end
+
 to check-surrender
-  if morale < 30 [
-    if random-float 1 < 0.10 [
+  if not surrender-enabled? [ stop ]
+  if morale < 40 or strength < 30 [
+    let surrender-prob 0
+    set surrender-prob surrender-prob + max list 0 ((40 - morale) / 200)
+    set surrender-prob surrender-prob + max list 0 ((30 - strength) / 150)
+    if suppressed-ticks > 0 [
+      set surrender-prob surrender-prob + 0.05
+    ]
+    if in-bunker? [
+      set surrender-prob surrender-prob * 0.7
+    ]
+    if surrender-prob > 0.6 [
+      set surrender-prob 0.6
+    ]
+    if random-float 1 < surrender-prob [
       set surrenders-total surrenders-total + 1
       die
     ]
@@ -459,7 +620,7 @@ to setup-bunkers
   ask patches [
     set bunker? false
     set bunker-strength 0
-    set bunker-capacity 1
+    set bunker-capacity bunker-default-capacity
     set plabel ""
   ]
 
@@ -491,6 +652,8 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to apply-ngfs
+
+  if not ngfs-enabled? [ stop ]
 
   if (ticks - ngfs-last-fire-tick) < ngfs-fire-interval [
     stop
@@ -550,7 +713,7 @@ to apply-ngfs-to-patch [center]
       ask turtles-here with [breed = argentine-troops and in-bunker?] [
         set in-bunker? false
         set entrenched? false
-        set suppressed-ticks max list suppressed-ticks 3
+        apply-suppression 3
         set morale morale - 20
       ]
     ]
@@ -571,11 +734,17 @@ to apply-ngfs-to-patch [center]
     let damage base-damage
 
     if terrain = "trench" [
-      set damage damage * 0.5
+      set damage damage * trench-damage-mult
+      set ngfs-trench-exposures ngfs-trench-exposures + 1
     ]
 
     if terrain = "bunker" [
-      set damage damage * 0.2
+      set damage damage * bunker-damage-mult
+      set ngfs-bunker-exposures ngfs-bunker-exposures + 1
+    ]
+
+    if terrain = "open" [
+      set ngfs-open-exposures ngfs-open-exposures + 1
     ]
 
     ;; morale effects
@@ -585,7 +754,12 @@ to apply-ngfs-to-patch [center]
 
     set strength strength - damage
     set morale morale - morale-loss
-    set suppressed-ticks max list suppressed-ticks 2
+    if terrain = "bunker" [
+      apply-suppression (ngfs-suppression-ticks * bunker-suppression-mult)
+    ]
+    if terrain != "bunker" [
+      apply-suppression ngfs-suppression-ticks
+    ]
 
     set ngfs-total-damage ngfs-total-damage + damage
     set arg-strength-loss-total arg-strength-loss-total + damage
@@ -680,7 +854,7 @@ to export-ngfs-data
   file-open export-file
 
   if not csv-initialized? [
-    file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,avg_detection_range,avg_hit_prob,last_x,last_y"
+    file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
     set csv-initialized? true
   ]
 
@@ -721,6 +895,12 @@ to export-ngfs-data
     count argentine-troops with [in-bunker?] ","
     count argentine-troops with [[trench?] of patch-here and not in-bunker?] ","
     count argentine-troops with [suppressed-ticks > 0] ","
+    bunker-entries-total ","
+    panic-events-total ","
+    suppression-events-total ","
+    ngfs-open-exposures ","
+    ngfs-trench-exposures ","
+    ngfs-bunker-exposures ","
     avg-detection-range ","
     avg-hit-prob ","
     ngfs-last-strike-x ","
@@ -740,7 +920,9 @@ to go
   refresh-patch-visuals
   run-argentine-troops
   apply-ngfs
-  export-ngfs-data
+  if auto-export? [
+    export-ngfs-data
+  ]
 
   tick
 
@@ -749,7 +931,27 @@ end]]></code>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="1" maxPxcor="16" minPxcor="-16"></view>
     <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup
 </button>
-    <button x="65" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="go">go</button>
+    <button x="65" y="5" height="40" disableUntilTicks="true" forever="true" kind="Observer" width="55" display="go">go</button>
+    <chooser x="5" y="55" height="60" variable="bunker-mode" current="0" width="120" display="bunker-mode">
+      <choice type="string" value="historical"></choice>
+      <choice type="string" value="random"></choice>
+    </chooser>
+    <chooser x="130" y="55" height="60" variable="ngfs-mode" current="0" width="120" display="ngfs-mode">
+      <choice type="string" value="realistic"></choice>
+      <choice type="string" value="all-map"></choice>
+    </chooser>
+    <slider x="5" step="1" y="120" max="20" width="245" display="ngfs-range" height="50" min="1" direction="Horizontal" default="9.0" variable="ngfs-range" units="patches"></slider>
+    <slider x="5" step="1" y="170" max="20" width="245" display="ngfs-fire-interval" height="50" min="1" direction="Horizontal" default="4.0" variable="ngfs-fire-interval" units="ticks"></slider>
+    <switch x="5" y="225" height="40" on="true" variable="show-heatmap?" width="120" display="show-heatmap?"></switch>
+    <switch x="130" y="225" height="40" on="true" variable="ngfs-enabled?" width="120" display="ngfs-enabled?"></switch>
+    <switch x="5" y="270" height="40" on="true" variable="suppression-enabled?" width="160" display="suppression-enabled?"></switch>
+    <switch x="170" y="270" height="40" on="true" variable="surrender-enabled?" width="150" display="surrender-enabled?"></switch>
+    <switch x="5" y="315" height="40" on="true" variable="auto-export?" width="120" display="auto-export?"></switch>
+    <slider x="5" step="1" y="360" max="4" width="245" display="bunker-default-capacity" height="50" min="1" direction="Horizontal" default="1.0" variable="bunker-default-capacity" units="troops"></slider>
+    <slider x="5" step="0.05" y="410" max="1.0" width="245" display="trench-damage-mult" height="50" min="0.1" direction="Horizontal" default="0.5" variable="trench-damage-mult" units=""></slider>
+    <slider x="5" step="0.05" y="460" max="1.0" width="245" display="bunker-damage-mult" height="50" min="0.05" direction="Horizontal" default="0.2" variable="bunker-damage-mult" units=""></slider>
+    <slider x="5" step="0.1" y="510" max="1.0" width="245" display="bunker-suppression-mult" height="50" min="0.0" direction="Horizontal" default="0.5" variable="bunker-suppression-mult" units=""></slider>
+    <slider x="5" step="1" y="560" max="6" width="245" display="ngfs-suppression-ticks" height="50" min="0" direction="Horizontal" default="2.0" variable="ngfs-suppression-ticks" units="ticks"></slider>
   </widgets>
   <info>## WHAT IS IT?
 
