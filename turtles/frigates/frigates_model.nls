@@ -5,7 +5,7 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
   
   let angles-1 [0 120 240]
   let angles-2 [300]
-  let angles-3 [0 270] 
+  let angles-3 [100 200] 
   let angles-4 [300]
 
 foreach angles-1 [
