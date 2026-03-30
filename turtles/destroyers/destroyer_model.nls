@@ -1,13 +1,19 @@
-destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-carrier escort-angle orbit-radius orbit-speed]
+destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range escort-target escort-angle orbit-radius orbit-speed]
 
  to setup-destroyers
+  
+  let angles-1 [0 90 180 270]
+  let angles-2 [0 120 240]
+  
+  foreach angles-1 [
+  a ->
   ask carriers [
-    hatch-destroyers 4 [
+    hatch-destroyers 1 [
       set name "type_42"
       set color orange
       set size 2
 
-      set escort-carrier myself
+      set escort-target myself
       set speed 0.07
       set turn-rate 0.8
       set radar-range 20
@@ -19,13 +25,10 @@ destroyers-own [ name new-heading turn-rate radar-range gun-range sam-range mez-
       set orbit-radius 22
       set orbit-speed 0;4
 
-      if who mod 4 = 0 [ set escort-angle 30 ]
-      if who mod 4 = 1 [ set escort-angle 120 ]
-      if who mod 4 = 2 [ set escort-angle 210 ] 
-      if who mod 4 = 3 [ set escort-angle 300 ]
+set escort-angle a
 
-let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
-let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
+let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
 let target-patch min-one-of (patches in-radius 5) with [ocean? and 
   count neighbors with [ocean?] >= 4] [distancexy new-x new-y]
       
@@ -33,10 +36,52 @@ let target-patch min-one-of (patches in-radius 5) with [ocean? and
       ifelse target-patch != nobody [
         move-to target-patch
       ] [
-        move-to escort-carrier]
+        move-to escort-target]
       
-ifelse distance escort-carrier > 0 [
-  set heading towards escort-carrier + 90
+ifelse distance escort-target > 0 [
+  set heading towards escort-target + 90
+] [
+  set heading random 360
+        ]
+      ]
+    ]
+  ]
+      
+    foreach angles-2 [
+  b ->
+      ask flotillas [
+    hatch-destroyers 1 [
+      set name "type_42"
+      set color orange
+      set size 2
+
+      set escort-target myself
+      set speed 0.07
+      set turn-rate 0.8
+      set radar-range 20
+      set gun-range 15
+      set sam-range 30
+      set mez-range 25
+      set state "straight"
+
+      set orbit-radius 22
+      set orbit-speed 0;4
+
+set escort-angle b
+
+let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
+let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
+let target-patch min-one-of (patches in-radius 5) with [ocean? and 
+  count neighbors with [ocean?] >= 4] [distancexy new-x new-y]
+      
+      ;; Move to that specific ocean patch
+      ifelse target-patch != nobody [
+        move-to target-patch
+      ] [
+        move-to escort-target]
+      
+ifelse distance escort-target > 0 [
+  set heading towards escort-target + 90
 ] [
   set heading random 360
 ]
@@ -45,6 +90,7 @@ ifelse distance escort-carrier > 0 [
     ifelse show-stat? [ 
       set label name
     ] [ set label "" ] 
+      ]
     ]
   ]
 end
@@ -53,8 +99,8 @@ to move-destroyers
   ask destroyers [
       set escort-angle (escort-angle + orbit-speed) mod 360
 
-      let new-x ([xcor] of escort-carrier + orbit-radius * cos escort-angle)
-      let new-y ([ycor] of escort-carrier + orbit-radius * sin escort-angle)
+      let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
+      let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
       let target-patch patch new-x new-y
 
       ifelse target-patch != nobody [
@@ -91,21 +137,20 @@ end
 
 to scan-and-respond-destroyer 
   ask destroyers [ 
-    let lead-carrier min-one-of carriers [distance myself]
-    let d distance lead-carrier
+    let d distance escort-target
     let ideal-radius 22
     let band 2
     
     if d > ideal-radius + band [
-      set new-heading towards lead-carrier
+      set new-heading towards escort-target
       set state "turning"
     ]
     if d < ideal-radius - band [
-      set new-heading (towards lead-carrier + 180) mod 360
+      set new-heading (towards escort-target + 180) mod 360
       set state "turning"
     ]
     if d >= ideal-radius - band and d <= ideal-radius + band [
-      set new-heading (towards lead-carrier + 90) mod 360
+      set new-heading (towards escort-target + 90) mod 360
       set state "turning"
     ]
     let others other frigates in-radius 3
