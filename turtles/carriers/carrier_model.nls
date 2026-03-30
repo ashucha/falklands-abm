@@ -3,7 +3,7 @@ carriers-own [ name new-heading turn-rate striking? alert-avail? shar-count ]
 to setup-carriers 
   set carrier-alert-dist 180 / km-per-patch ;; TODO: this value is entirely false, just based on the 180km range of exocets
   set shar-launch-int floor (60 / minutes-per-tick)
-  let spawn-patch one-of patches with [ zone = spawn-zone and ocean? ] ;; randomly selects a base spawn patch within zone selected on widget (ocean only) for carrier placement
+  set spawn-patch one-of patches with [ zone = spawn-zone and ocean? ] ;; randomly selects a base spawn patch within zone selected on widget (ocean only) for carrier placement
   
   ;; CAPs
   set shar-cap-list (list

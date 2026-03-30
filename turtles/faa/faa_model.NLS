@@ -86,6 +86,7 @@ to launch-faa
       set objx [xcor] of nearest-carrier
       set objy [ycor] of nearest-carrier
     ]
+   
 
     set state "transit"
     set speed cruise-speed

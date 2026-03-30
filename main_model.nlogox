@@ -13,7 +13,8 @@
   "turtles/flotillas/flotilla_model.nls"
   "turtles/faa/faa_model.nls"
 ]
-;hi
+
+;; hi
 globals [ 
   ocean-color ocean-offset
   
@@ -24,7 +25,7 @@ globals [
   event-list
   
   ;; carrier spawn zone
-  ;;spawn-zone
+  spawn-patch
   
   ;; using these for plotting
   attacks 
@@ -212,12 +213,13 @@ end
     </plot>
     <switch x="130" y="50" height="40" on="true" variable="show-waypoints?" width="135" display="show-waypoints?"></switch>
     <switch x="270" y="50" height="40" on="true" variable="show-caps?" width="100" display="show-caps?"></switch>
-    <chooser x="160" y="160" height="60" variable="spawn-zone" current="0" width="250" display="spawn-zone">
+    <chooser x="160" y="160" height="60" variable="spawn-zone" current="5" width="250" display="spawn-zone">
       <choice type="string" value="zone-1"></choice>
       <choice type="string" value="zone-2"></choice>
       <choice type="string" value="zone-3"></choice>
       <choice type="string" value="zone-4"></choice>
       <choice type="string" value="zone-5"></choice>
+      <choice type="string" value="TEZ-edge-zone"></choice>
     </chooser>
   </widgets>
   <info>## WHAT IS IT?
