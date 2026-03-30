@@ -77,6 +77,7 @@ to color-triangle-sections
     if (side1 >= 0 and side2 >= 0 and side3 >= 0) or
        (side1 <= 0 and side2 <= 0 and side3 <= 0) [
       set pcolor sky
+      set zone "zone-4"
     ]
   ]
 
@@ -117,6 +118,18 @@ to color-channel-zone
   ]
 end
 
+to TEZ-edge-location
+  let cx floor (nmi-to-patches 200)
+  let cy 0
+
+  ask patches with [
+    ocean? and
+    pxcor = cx and pycor = cy
+  ] [
+    set zone "TEZ-edge-zone"
+  ]
+end
+
 to setup-map
   setup-world
   load-map
@@ -125,4 +138,5 @@ to setup-map
   color-ocean-sections
   color-triangle-sections
   color-channel-zone
+  TEZ-edge-location
 end
