@@ -86,23 +86,3 @@ to move-amphibs-old
   ]
 end
 
-to execute-logic-amphibs
-  ask amphibs [
-    scan-and-respond-amphibs
-    ;launch-troops
-  ]
-end
-
-;; Amphibious ship “escort” movement
-to scan-and-respond-amphibs
-  ask amphibs [
-    ;; Follow the nearest carrier
-    let lead-carrier min-one-of carriers [distance myself]
-    let d distance lead-carrier
-    
-    if d > 10 [
-      set new-heading towards lead-carrier
-      set state "turning"
-    ]
-  ]
-end
