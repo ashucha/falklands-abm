@@ -10,12 +10,11 @@ frigates-own [ name new-heading turn-rate radar-range gun-range sam-range mez-ra
 
 foreach angles-1 [
   a ->
-  ask carriers [
-    hatch-frigates 1 [
+create-frigates 1 [
       set name "type_21"
       set color green
       set size 2
-      set escort-target myself
+      set escort-target one-of carriers
       set speed 0.07
       set turn-rate 0.8
       set radar-range 20
@@ -29,8 +28,8 @@ foreach angles-1 [
 
 set escort-angle a
 
-let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
-let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
+let new-x ([pxcor] of spawn-patch + orbit-radius * cos escort-angle)
+let new-y ([pycor] of spawn-patch + orbit-radius * sin escort-angle)
 let target-patch min-one-of (patches in-radius 5) with [ocean? and 
   count neighbors with [ocean?] >= 4] [distancexy new-x new-y]
       ;;edit: do an extra check to make sure the surrounding patches are at most half land
@@ -48,16 +47,14 @@ ifelse distance escort-target > 0 [
         ]
       ]
     ]
-  ]
 
 foreach angles-2 [
   b ->
-    ask carriers [
-    hatch-frigates 1 [
+create-frigates 1 [
       set name "type_22"
       set color green
       set size 2
-      set escort-target myself
+      set escort-target one-of carriers
       set speed 0.08
       set turn-rate 0.8
       set radar-range 30
@@ -71,8 +68,8 @@ foreach angles-2 [
 
 set escort-angle b
 
-let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
-let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
+let new-x ([pxcor] of spawn-patch + orbit-radius * cos escort-angle)
+let new-y ([pycor] of spawn-patch + orbit-radius * sin escort-angle)
 let target-patch min-one-of (patches in-radius 5) with [ocean? and 
   count neighbors with [ocean?] >= 5] [distancexy new-x new-y]
       
@@ -89,7 +86,6 @@ ifelse distance escort-target > 0 [
         ]
       ]
     ]
-  ]
 
 foreach angles-3 [
   c ->
