@@ -1,4 +1,4 @@
-d<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
   <code><![CDATA[;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; VARIABLES
@@ -57,6 +57,9 @@ globals [
   arg-strength-loss-total
   panic-events-total
   suppression-events-total
+
+  ;; Analytics: British Casualties
+  british-casualties
 ]
 
 patches-own [
@@ -95,6 +98,20 @@ turtles-own [
   ;; Behavioral State
   suppressed-ticks
   panic-move?
+]
+
+british-troops-own [
+  ;; Movement & Combat Profile
+  mobility
+  lethality
+  engagement-distance
+  max-accuracy-distance
+  invulnerability
+  unit-type
+
+  ;; Behavioral State
+  status
+  retreat-threshold
 ]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -173,11 +190,16 @@ to initialize-global-state
   set panic-events-total 0
   set suppression-events-total 0
 
-  ;; Export file setup
+  ;; Analytics: British Casualties
+  set british-casualties 0
+
+  ;; Export file setup — pre-write header at setup time so the first line
+  ;; is always the header regardless of when run-export-phase first fires.
   set export-file (word "ngfs_data_" bunker-mode "_" ngfs-mode ".csv")
   if file-exists? export-file [
     file-delete export-file
   ]
+  write-snapshot-header
 
   ;; Event log file setup
   set event-export-file (word "ngfs_events_" bunker-mode "_" ngfs-mode ".csv")
@@ -185,15 +207,16 @@ to initialize-global-state
     file-delete event-export-file
   ]
   set event-csv-initialized? false
+  write-event-header
   set surrenders-last-logged 0
 
-  show (word "[EXPORT] Snapshot CSV : " export-file " (every " export-every-ticks " ticks)")
-  show (word "[EXPORT] Event CSV    : " event-export-file " (strike / surrender / bunker events)")
+  show (word "[EXPORT] Snapshot CSV : " export-file " (every " export-every-ticks " ticks, header written: " csv-initialized? ")")
+  show (word "[EXPORT] Event CSV    : " event-export-file " (header written: " event-csv-initialized? ")")
   show (word "[EXPORT] auto-export? = " auto-export?)
 end
 
 to initialize-patch-state
-  import-pcolors "../output/terrain_map_v1.png"
+  import-pcolors "../terrain_map.png"
 
   ask patches [
     set base-pcolor pcolor
@@ -218,6 +241,7 @@ to initialize-troop-state
   ask argentine-troops [
     update-visual-state
   ]
+  spawn-british-troops
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -274,15 +298,14 @@ to run-argentine-troops
 
     argentine-update-preconditions
 
-    if not argentine-survives-tick? [
-      stop
+    ifelse argentine-survives-tick? [
+      argentine-resolve-cover
+      argentine-resolve-withdrawal
+      argentine-resolve-combat
+      update-visual-state
+    ] [
+      die
     ]
-
-    argentine-resolve-cover
-    argentine-resolve-withdrawal
-    argentine-resolve-combat
-
-    update-visual-state
 
   ]
 
@@ -315,8 +338,9 @@ to argentine-update-preconditions
 end
 
 to-report argentine-survives-tick?
-  check-surrender
-  if not member? self sort turtles [
+  ;; Every branch must report; die is handled by the caller (run-argentine-troops)
+  if should-surrender? [
+    set surrenders-total surrenders-total + 1
     report false
   ]
   report true
@@ -397,23 +421,23 @@ to update-visual-state
 
   set color red
 
-  let status "E"
+  let display-char "E"
 
   if in-bunker? [
-    set status "B"
+    set display-char "B"
   ]
 
   if [trench?] of patch-here and not in-bunker? [
-    set status "T"
+    set display-char "T"
   ]
 
   if suppressed-ticks > 0 [
-    set label word status "*"
+    set label word display-char "*"
     set label-color yellow
   ]
 
   if suppressed-ticks = 0 [
-    set label status
+    set label display-char
     set label-color white
   ]
 
@@ -598,8 +622,9 @@ to apply-suppression [ticks-to-add]
   ]
 end
 
-to check-surrender
-  if not surrender-enabled? [ stop ]
+to-report should-surrender?
+  ;; Pure reporter — no stop/die; caller owns the death
+  if not surrender-enabled? [ report false ]
   if morale < 40 or strength < 30 [
     let surrender-prob 0
     set surrender-prob surrender-prob + max list 0 ((40 - morale) / 200)
@@ -614,8 +639,216 @@ to check-surrender
       set surrender-prob 0.6
     ]
     if random-float 1 < surrender-prob [
-      set surrenders-total surrenders-total + 1
-      die
+      report true
+    ]
+  ]
+  report false
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BRITISH TROOPS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to spawn-british-troops
+  ;; Five task forces land on the western coast (San Carlos area)
+  ;; and begin advancing east toward Stanley.
+  ;; Positions are scaled to the v2 world (-16 to 16) and placed
+  ;; on valid (non-water) land on the western side of the map.
+  let initial-british-positions [
+    [-14  7]  ;; SBS
+    [-12  6]  ;; 3 Para
+    [-14  1]  ;; 40 Commando
+    [-13 -1]  ;; 2 Para
+    [-15  0]  ;; 45 Commando
+  ]
+
+  foreach initial-british-positions [ pos ->
+    let px item 0 pos
+    let py item 1 pos
+    ;; If the target patch is water, find the nearest non-water alternative
+    let dest-patch patch px py
+    if [water?] of dest-patch [
+      set dest-patch min-one-of patches with [not water? and pxcor < -5] [
+        distancexy px py
+      ]
+    ]
+    if dest-patch != nobody [
+      create-british-troops 1 [
+        move-to dest-patch
+        set color blue
+        set size 2
+        set shape "default"
+
+        ;; Combat profile
+        set mobility            5
+        set lethality           30
+        set engagement-distance 7
+        set max-accuracy-distance 4
+        set invulnerability     0
+        set unit-type           "infantry"
+
+        ;; Behavioral state (turtles-own)
+        set strength            100
+        set morale              100
+        set entrenched?         false
+        set in-bunker?          false
+        set bunker-target       nobody
+        set engagement-target   nobody
+        set suppressed-ticks    0
+        set panic-move?         false
+
+        ;; British-troops-own
+        set status              "advancing"
+        set retreat-threshold   20
+        set label               strength
+      ]
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Phase driver — called once per tick from go
+;; ─────────────────────────────────────────────────────────────
+to run-british-troops
+  if not any? british-troops [ stop ]
+  ask british-troops [ move-british-troops ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Per-unit controller
+;; ─────────────────────────────────────────────────────────────
+to move-british-troops
+  ;; Kill check — unit is destroyed
+  if strength <= 0 [
+    set british-casualties british-casualties + 1
+    die
+  ]
+
+  ;; Branch: retreat vs. advance-and-engage
+  ifelse strength <= retreat-threshold [
+    set status "retreating"
+    retreat-british-troops
+  ] [
+    detect-argentine-troops
+
+    ifelse engagement-target != nobody [
+      let dist distance engagement-target
+      ifelse dist <= engagement-distance [
+        ;; Within engagement range — close in or hold and fire
+        ifelse dist <= max-accuracy-distance [
+          set status "engaging"
+        ] [
+          set status "advancing"
+          advance-british-troops
+        ]
+        engage-argentine-troops
+      ] [
+        ;; Outside engagement range — keep advancing
+        set status "advancing"
+        advance-british-troops
+      ]
+    ] [
+      ;; No enemy visible — keep moving east
+      advance-british-troops
+    ]
+  ]
+
+  set label strength
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Scan for nearest Argentine unit within detection range
+;; ─────────────────────────────────────────────────────────────
+to detect-argentine-troops
+  if any? argentine-troops [
+    set engagement-target min-one-of argentine-troops [distance myself]
+    face engagement-target
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Move toward engagement-target while avoiding water
+;; ─────────────────────────────────────────────────────────────
+to advance-british-troops
+  ;; If standing on water, move immediately to nearest land
+  if [water?] of patch-here [
+    let dry-patch min-one-of patches with [not water?] [distance myself]
+    if dry-patch != nobody [ move-to dry-patch ]
+    stop
+  ]
+
+  if engagement-target != nobody [
+    let dist distance engagement-target
+    let move-distance 0
+
+    ifelse dist > max-accuracy-distance [
+      set move-distance mobility * 0.05   ;; close-in creep
+    ] [
+      set move-distance 0                 ;; at optimal range — hold position
+    ]
+
+    if move-distance > 0 [
+      let target-heading towards engagement-target
+      let new-x xcor + move-distance * sin target-heading
+      let new-y ycor + move-distance * cos target-heading
+
+      ;; Clamp to world bounds
+      if new-x < min-pxcor [ set new-x min-pxcor ]
+      if new-x > max-pxcor [ set new-x max-pxcor ]
+      if new-y < min-pycor [ set new-y min-pycor ]
+      if new-y > max-pycor [ set new-y max-pycor ]
+
+      let dest-patch patch new-x new-y
+      ifelse [water?] of dest-patch [
+        ;; Destination is water — pick best dry neighbor
+        let non-water-neighbors neighbors with [not water?]
+        if any? non-water-neighbors [
+          let et engagement-target
+          move-to min-one-of non-water-neighbors [distance et]
+        ]
+      ] [
+        setxy new-x new-y
+      ]
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Fire at current engagement-target
+;; ─────────────────────────────────────────────────────────────
+to engage-argentine-troops
+  if engagement-target = nobody [ stop ]
+
+  let dist distance engagement-target
+  let hit-prob 0.4 + (0.4 / max list dist 0.1)
+
+  if random-float 1 < hit-prob [
+    ask engagement-target [
+      set strength strength - [lethality] of myself
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Retreat behaviour (stub — expand for future phases)
+;; ─────────────────────────────────────────────────────────────
+to retreat-british-troops
+  ;; Move away from the nearest Argentine threat
+  if engagement-target != nobody [
+    face engagement-target
+    rt 180
+    let retreat-distance mobility * 0.1
+    let new-x xcor + retreat-distance * sin heading
+    let new-y ycor + retreat-distance * cos heading
+
+    if new-x < min-pxcor [ set new-x min-pxcor ]
+    if new-x > max-pxcor [ set new-x max-pxcor ]
+    if new-y < min-pycor [ set new-y min-pycor ]
+    if new-y > max-pycor [ set new-y max-pycor ]
+
+    let dest-patch patch new-x new-y
+    if dest-patch != nobody and not [water?] of dest-patch [
+      setxy new-x new-y
     ]
   ]
 end
@@ -929,6 +1162,28 @@ end
 ;; DATA EXPORT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; ─────────────────────────────────────────────────────────────
+;; Header writers — called once during setup so the header is
+;; always the first line in each file, written before any tick
+;; fires and before run-export-phase can possibly be invoked.
+;; ─────────────────────────────────────────────────────────────
+
+to write-snapshot-header
+  ;; Snapshot CSV — 31 columns (must stay in sync with export-ngfs-data data row)
+  file-open export-file
+  file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
+  file-close
+  set csv-initialized? true
+end
+
+to write-event-header
+  ;; Event CSV — 14 columns (must stay in sync with log-event data row)
+  file-open event-export-file
+  file-print "tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg"
+  file-close
+  set event-csv-initialized? true
+end
+
 ;; Shared event logger — observer context only.
 ;; event-type : string label  (e.g. "strike-fired", "bunker-collapsed", "surrender-wave")
 ;; event-x/y  : world coords of the event (0 0 for non-spatial events)
@@ -1034,6 +1289,7 @@ end
 to go
   refresh-patch-visuals
   run-argentine-troops
+  run-british-troops
   run-ngfs-phase
   run-export-phase
   tick
@@ -1041,6 +1297,14 @@ end
 
 to run-export-phase
   if auto-export? [
+    ;; Invariant check on first export tick — warn if header was not pre-written
+    if ticks = 0 and not csv-initialized? [
+      show "[EXPORT WARNING] csv-initialized? is false at tick 0 — headers may be missing. Run Setup first."
+    ]
+    if ticks = 0 and not event-csv-initialized? [
+      show "[EXPORT WARNING] event-csv-initialized? is false at tick 0 — event headers may be missing. Run Setup first."
+    ]
+
     ;; Snapshot: write full summary row every N ticks
     if (ticks mod export-every-ticks = 0) [
       export-ngfs-data
@@ -1056,7 +1320,6 @@ end]]></code>
     <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="5" y="10" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
     <button x="70" y="10" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="go">go</button>
-    <slider x="5" step="1" y="60" max="100" width="245" display="export-every-ticks" height="50" min="1" direction="Horizontal" default="10.0" variable="export-every-ticks" units="ticks"></slider>
   </widgets>
   <info>## WHAT IS IT?
 
