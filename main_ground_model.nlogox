@@ -44,7 +44,7 @@ to setup
   
   ;; initialize ground metrics
   set british-casualties 0
-;   set argentine-casualties 0
+  ;   set argentine-casualties 0
   set defenses-destroyed 0
   set targets-captured 0
   

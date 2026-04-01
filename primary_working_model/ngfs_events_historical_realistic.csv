@@ -1,0 +1,5 @@
+tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg
+6,surrender-wave,0,0,1,historical,realistic,1,1,0,0,0,3,100
+28,strike-fired,-5.292893218813452,-10.707106781186548,1,historical,realistic,1,1,1,1,0,2,100
+37,surrender-wave,0,0,1,historical,realistic,1,1,1,1,0,1,100
+63,surrender-wave,0,0,1,historical,realistic,1,1,1,1,0,0,0

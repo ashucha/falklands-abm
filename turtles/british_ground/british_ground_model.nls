@@ -1,12 +1,12 @@
 british-troops-own [
   mobility
-  lethality
+  ; firing-damage
   engagement-distance
   max-accuracy-distance
-  strength
+  ; strength
   invulnerability
   unit-type
-  status
+  state
   target
   retreat-threshold
 ]
@@ -19,10 +19,10 @@ end
 
 
 to initialize-metrics
-  set british-casualties 0
+  ; set british-casualties 0
   ; set argentine-casualties 0
-  set defenses-destroyed 0
-  set targets-captured 0
+  ; set defenses-destroyed 0
+  ; set targets-captured 0
 end
 
 to setup-british-troops
@@ -42,13 +42,13 @@ to setup-british-troops
       set color red
       set size 2
       set mobility 5
-      set lethality 30
+      set firing-damage 30
       set engagement-distance 7
       set max-accuracy-distance 4
       set strength 100
       set invulnerability 0
       set unit-type "infantry"
-      set status "advancing"
+      set state "advancing"
       set target nobody
       set retreat-threshold 20
     ]
@@ -62,13 +62,13 @@ end
 
 to move-british-troops
   if strength <= 0 [
-    set british-casualties british-casualties + 1
+    ; set british-casualties british-casualties + 1
     die
   ]
 
   ifelse strength <= retreat-threshold [
-    set status "retreating"
-    retreat-british-troops
+    set state "retreating"
+    ; retreat-british-troops
   ] [
     detect-argentine-troops
 
@@ -77,20 +77,20 @@ to move-british-troops
 
       ifelse dist <= engagement-distance [
         ifelse dist <= max-accuracy-distance [
-          set status "engaging"
+          set state "engaging"
         ] [
           advance-british-troops
         ]
 
         engage-argentine-troops
       ] [
-        set status "advancing"
+        set state "advancing"
         advance-british-troops
       ]
     ]
 
     ;; move to ridge and entrench
-    if status != "engaged" [
+    if state != "engaged" [
       ; move-to-ridge
     ]
 
@@ -110,11 +110,9 @@ end
 
 
 to detect-argentine-troops
-  if any? argentine-troops [
-
-    let enemy min-one-of argentine-troops [distance myself]
-    set target enemy
-    
+  set target min-one-of argentine-troops [distance myself]
+  
+  if target != nobody and is-agent? target [
     face target
   ]
 end
@@ -122,12 +120,16 @@ end
 
 to advance-british-troops
   ;; If on a water patch, move to the nearest non-water patch
-  if [pcolor] of patch-here = white [
-    let dry-patch min-one-of patches with [pcolor != white] [[distance self] of myself]
-    if dry-patch != nobody [
-      move-to dry-patch
-    ]
-  ]
+  ; if [pcolor] of patch-here = white [
+  ;   let dry-patch min-one-of patches with [pcolor != white] [[distance self] of myself]
+  ;   if dry-patch != nobody [
+  ;     move-to dry-patch
+  ;   ]
+  ; ]
+
+;   face find-nearest-enemy
+  face target
+  let next-patch patch-ahead mobility
 
   if target != nobody [
     let dist distance target
@@ -185,7 +187,7 @@ to engage-argentine-troops
 
   if random-float 1 < hit-prob [
     ask target [
-      set strength strength - lethality
+      set strength strength - firing-damage
     ]
   ]
 end
