@@ -177,10 +177,24 @@ end
 ;; find location of "events"/maybe change pcolor?
 to move-frigates
   ask frigates [
-    set escort-angle (escort-angle + orbit-speed) mod 360
-    let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
-    let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
-    let target-patch patch new-x new-y
+
+    ;; if escort target is a landed flotilla, hold position
+    if escort-target != nobody and member? escort-target turtles and
+       [breed] of escort-target = flotillas and
+       [state] of escort-target = "landed" [
+      set speed 0
+    ]
+
+    ;; otherwise continue normal behavior
+    if not (escort-target != nobody and member? escort-target turtles and
+            [breed] of escort-target = flotillas and
+            [state] of escort-target = "landed") [
+
+      set escort-angle (escort-angle + orbit-speed) mod 360
+
+      let new-x ([xcor] of escort-target + orbit-radius * cos escort-angle)
+      let new-y ([ycor] of escort-target + orbit-radius * sin escort-angle)
+      let target-patch patch new-x new-y
 
       ifelse target-patch != nobody [
         ifelse [ocean?] of target-patch [
@@ -188,7 +202,7 @@ to move-frigates
                 min list max-pycor max list min-pycor new-y
         ] [
           let closest-ocean min-one-of (patches in-radius 5) with [ocean? and 
-  count neighbors with [ocean?] >= 5] [
+            count neighbors with [ocean?] >= 5] [
             distancexy new-x new-y
           ]
           if closest-ocean != nobody [ move-to closest-ocean ]
@@ -197,6 +211,7 @@ to move-frigates
         setxy min list max-pxcor max list min-pxcor new-x
               min list max-pycor max list min-pycor new-y
       ]
+    ]
     
     ;; UI stuff, useful for debugging
     ifelse show-stat? [  

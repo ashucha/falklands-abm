@@ -78,33 +78,43 @@ end
 
 to move-flotillas
   ask flotillas [
-    if flotilla-type = "amphib" [
-      set next-wp (item w-i waypoints)
-      let phase-wp (item (length waypoints - 1) waypoints)
-      ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
-        face patch (item 0 next-wp) (item 1 next-wp)
-        forward speed
-      ][ 
-        set w-i w-i + 1 
-        if w-i >= length waypoints [
-          die
+    if state != "landed" [
+      if flotilla-type = "amphib" [
+        set next-wp (item w-i waypoints)
+        let phase-wp (item (length waypoints - 1) waypoints)
+
+        ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+          face patch (item 0 next-wp) (item 1 next-wp)
+          forward speed
+        ][ 
+          set w-i w-i + 1 
+          if w-i >= length waypoints [
+            set state "landed"
+          ]
+        ] 
+      
+        if state != "landed" [
+          ifelse w-i = (length waypoints - 2) [ 
+            set state "phase3" 
+          ][
+            ifelse w-i = (length waypoints - 1) [ 
+              set state "landed"
+            ][
+              if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
+                set hermes-cap? 8
+                set invincible-cap? 10
+                set state "phase2"
+              ] 
+            ]
+          ]
         ]
-      ] 
       
-      
-      ifelse w-i = (length waypoints - 2) [ set state "phase3" ][
-        ifelse w-i = (length waypoints - 1) [ die ][
-          if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
-            set hermes-cap? 8
-            set invincible-cap? 10
-            set state "phase2"
-          ] 
+        ifelse show-stat? [
+          set label state
+        ][ 
+          set label "" 
         ]
       ]
-      
-      ifelse show-stat? [
-        set label state
-      ][ set label "" ]
     ]
   ]
 end

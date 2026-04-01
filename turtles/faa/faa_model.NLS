@@ -145,8 +145,8 @@ to launch-faa
     set state "transit"
     set speed cruise-speed
 
-    set faa-jets faa-jets - num-flight
-    if faa-jets < 0 [ set faa-jets 0 ]
+    ;;set faa-jets faa-jets - num-flight
+    ;;if faa-jets < 0 [ set faa-jets 0 ]
   ]
 end
 
