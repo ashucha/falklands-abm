@@ -414,3 +414,334 @@ You can confidently report:
 > “Each configuration was simulated using adaptive Monte Carlo sampling until the 95% confidence interval width fell below ±5%.”
 
 ---
+
+
+
+
+# 🔒 STRICT IMPLEMENTATION ADDENDUM (NO AMBIGUITY)
+
+This document overrides any vague interpretation. All requirements below are **mandatory**.
+
+---
+
+# 1. DATA PERSISTENCE (MANDATORY)
+
+## ✅ REQUIREMENT
+
+The model **MUST store results from EVERY simulation iteration** inside the adaptive loop.
+
+### REQUIRED DATA STRUCTURES
+
+```netlogo
+globals [
+  durations          ;; list of conflict durations per run
+  outcomes           ;; list of 1 (British win) or 0 (loss)
+]
+```
+
+---
+
+## ✅ PER-ITERATION RECORDING (NON-NEGOTIABLE)
+
+After EACH simulation completes:
+
+```netlogo
+if british-win? [
+  set outcomes lput 1 outcomes
+] [
+  set outcomes lput 0 outcomes
+]
+
+set durations lput conflict-duration durations
+```
+
+---
+
+## ❗ WHY THIS IS REQUIRED
+
+* Needed for:
+
+  * mean
+  * variance
+  * standard deviation
+  * confidence intervals
+* Without storing all values → **statistically invalid**
+
+---
+
+# 2. SIMULATION TERMINATION (INNER LOOP)
+
+## ✅ REQUIREMENT
+
+A **single simulation run MUST terminate ONLY when a battle outcome is reached**
+
+---
+
+## ✅ EXACT LOGIC (NO INTERPRETATION)
+
+```netlogo
+to-report simulation-over?
+  report (
+    (not any? argentine-troops) OR
+    (all? argentine-troops [surrendered?])
+  ) OR
+  (not any? british-troops)
+end
+```
+
+---
+
+## ✅ OUTCOME DEFINITION (MANDATORY)
+
+### British Victory:
+
+* All Argentine troops:
+
+  * dead OR
+  * surrendered
+
+```netlogo
+to-report british-win?
+  report (
+    (not any? argentine-troops) OR
+    (all? argentine-troops [surrendered?])
+  )
+end
+```
+
+---
+
+### British Loss:
+
+* All British troops eliminated
+
+---
+
+## ❗ CRITICAL
+
+* Simulation MUST NOT stop early
+* Simulation MUST NOT stop based on time unless explicitly modeled
+
+---
+
+# 3. EXPERIMENT TERMINATION (OUTER LOOP)
+
+## ✅ REQUIREMENT
+
+The adaptive experiment stops ONLY when:
+
+```netlogo
+(runs > 30) AND (moe < target-moe)
+```
+
+---
+
+## ✅ EXACT MOE FORMULA
+
+```netlogo
+set p-hat mean outcomes
+
+set moe z-score * sqrt((p-hat * (1 - p-hat)) / runs)
+```
+
+---
+
+## ✅ SAFETY CAP (MANDATORY)
+
+```netlogo
+if runs >= max-runs [
+  stop
+]
+```
+
+---
+
+# 4. RANDOMNESS (STRICT REQUIREMENT)
+
+Each simulation MUST be independent.
+
+### REQUIRED:
+
+```netlogo
+random-seed new-seed
+```
+
+placed INSIDE `setup-simulation`
+
+---
+
+## ❗ FAILURE MODE
+
+If omitted:
+
+* identical runs
+* invalid confidence intervals
+* meaningless results
+
+---
+
+# 5. STRICT FUNCTION SEPARATION
+
+## ❗ MUST FOLLOW THIS STRUCTURE
+
+| Function              | Purpose                  |
+| --------------------- | ------------------------ |
+| `setup`               | Initialize experiment    |
+| `setup-simulation`    | Reset ONLY per-run state |
+| `go-step`             | One tick of simulation   |
+| `go-until-end`        | Runs ONE battle          |
+| `run-until-converged` | Runs MANY battles        |
+
+---
+
+## ❗ HARD RULE
+
+```text
+NEVER call setup inside run loop
+ONLY call setup-simulation
+```
+
+---
+
+# 6. BEHAVIORSPACE INTEGRATION (PRECISE)
+
+## ✅ BehaviorSpace DOES NOT run multiple simulations
+
+Instead:
+
+```text
+BehaviorSpace run = 1 adaptive experiment
+```
+
+---
+
+## ✅ REQUIRED SETTINGS
+
+| Setting       | Value   |
+| ------------- | ------- |
+| setup command | `setup` |
+| go command    | `go`    |
+| repetitions   | `1`     |
+
+---
+
+## ✅ REQUIRED REPORTERS
+
+```netlogo
+final-p
+final-duration-mean
+final-duration-std
+final-runs-used
+final-moe
+```
+
+---
+
+## ✅ OUTPUT INTERPRETATION
+
+Each row = **one converged experiment**
+
+---
+
+# 7. BEHAVIORSPACE → PYTHON PIPELINE
+
+## 🧠 PURPOSE
+
+BehaviorSpace:
+
+* runs experiments
+* outputs CSV
+
+Python:
+
+* analyzes results
+* builds plots
+* computes final statistics
+
+---
+
+## ✅ STEP 1 — EXPORT CSV
+
+BehaviorSpace automatically generates:
+
+```text
+experiment-output.csv
+```
+
+---
+
+## ✅ STEP 2 — PYTHON ANALYSIS SCRIPT
+
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load data
+df = pd.read_csv("experiment-output.csv")
+
+# Compute summary stats
+print("Mean win probability:", df["final-p"].mean())
+print("Mean duration:", df["final-duration-mean"].mean())
+
+# Plot carrier distance vs win probability
+plt.scatter(df["carrier-distance"], df["final-p"])
+plt.xlabel("Carrier Distance")
+plt.ylabel("British Win Probability")
+plt.title("Win Probability vs Carrier Distance")
+plt.show()
+
+# Plot runs required (convergence difficulty)
+plt.scatter(df["carrier-distance"], df["final-runs-used"])
+plt.xlabel("Carrier Distance")
+plt.ylabel("Runs to Converge")
+plt.title("Convergence Difficulty by Scenario")
+plt.show()
+```
+
+---
+
+## 🔥 WHAT THIS ENABLES
+
+You now analyze:
+
+* sensitivity of outcomes
+* convergence difficulty
+* uncertainty across scenarios
+
+---
+
+# 8. FINAL VALIDATION CHECKLIST (MANDATORY)
+
+Before running:
+
+### ✅ Must be TRUE:
+
+* [ ] outcomes list grows every run
+* [ ] durations list grows every run
+* [ ] simulation stops ONLY on battle outcome
+* [ ] experiment stops ONLY on MOE condition
+* [ ] randomness applied per run
+* [ ] no state leakage between runs
+* [ ] BehaviorSpace repetitions = 1
+* [ ] reporters return aggregated values
+
+---
+
+# 🚀 FINAL RESULT
+
+This system produces:
+
+* statistically valid Monte Carlo results
+* adaptive sampling per scenario
+* reproducible experiment outputs
+* clean pipeline into Python for analysis
+
+---
+
+# 🧠 FINAL STATEMENT YOU CAN USE
+
+> “Each scenario was simulated using adaptive Monte Carlo sampling, with runs continuing until the 95% confidence interval fell below ±5%. Results were exported via NetLogo BehaviorSpace and analyzed in Python.”
+
+---
+
+
