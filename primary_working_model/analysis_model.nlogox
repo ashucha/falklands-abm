@@ -377,7 +377,7 @@ to spawn-argentine-battalions
 
   create-argentine-troops 4 [
 
-    set color red
+    set color cyan
     set size 2
 
     set strength 100
@@ -398,9 +398,6 @@ end
 to run-argentine-troops
 
   ask argentine-troops [
-
-    set color red
-
     argentine-update-preconditions
 
     ifelse argentine-survives-tick? [
@@ -524,7 +521,7 @@ end
 
 to update-visual-state
 
-  set color red
+  set color cyan
 
   let display-char "E"
 
@@ -780,7 +777,7 @@ to spawn-british-troops
     if dest-patch != nobody [
       create-british-troops 1 [
         move-to dest-patch
-        set color blue
+        set color red
         set size 2
         set shape "default"
 
@@ -1596,7 +1593,7 @@ to run-export-phase
   ]
 end]]></code>
   <widgets>
-    <view x="368" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="true" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
+    <view x="368" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
     <button x="65" y="5" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="go">go</button>
   </widgets>
