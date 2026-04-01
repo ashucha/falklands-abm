@@ -1,0 +1,416 @@
+# Adaptive Monte Carlo + BehaviorSpace Integration (NetLogo Implementation Spec)
+
+## 🎯 Objective
+
+Implement a NetLogo experiment architecture that:
+
+1. Runs **adaptive Monte Carlo simulations** internally
+2. Stops automatically when **statistical significance is reached**
+3. Integrates with **BehaviorSpace** for parameter sweeps and CSV export
+
+---
+
+## 🧠 Core Concept
+
+Each BehaviorSpace run will:
+
+* Execute **multiple internal simulations**
+* Dynamically estimate:
+
+  * Win probability (p̂)
+  * Margin of error (MOE)
+  * Standard deviation (σ)
+* Stop when:
+
+  * MOE < target threshold (e.g., 0.05 for ±5%)
+
+---
+
+## 🏗️ REQUIRED MODEL ARCHITECTURE
+
+---
+
+## 1. GLOBAL VARIABLES
+
+Add the following globals:
+
+```netlogo
+globals [
+  ;; experiment tracking
+  runs
+  british-wins
+  durations
+
+  ;; statistics
+  p-hat
+  moe
+  std-duration
+
+  ;; parameters
+  target-moe
+  z-score
+  max-runs
+]
+```
+
+---
+
+## 2. REQUIRED REPORTERS (CRITICAL)
+
+These must exist for each simulation run:
+
+```netlogo
+to-report british-win?
+  report any? british-troops and not any? argentine-troops
+end
+
+to-report conflict-duration
+  report ticks
+end
+```
+
+---
+
+## 3. STOP CONDITION FOR A SINGLE SIMULATION
+
+```netlogo
+to-report simulation-over?
+  report (not any? argentine-troops) or (not any? british-troops)
+end
+```
+
+---
+
+## 4. GO PROCEDURE (MODIFIED)
+
+⚠️ IMPORTANT: `go` now runs the ENTIRE adaptive experiment
+
+```netlogo
+to go
+  run-until-converged
+  stop
+end
+```
+
+---
+
+## 5. FULL SETUP (FOR BEHAVIORSPACE)
+
+This runs once per BehaviorSpace experiment:
+
+```netlogo
+to setup
+  clear-all
+  reset-ticks
+
+  ;; initialize global parameters
+  set target-moe 0.05      ;; desired ±5% confidence
+  set z-score 1.96         ;; 95% confidence interval
+  set max-runs 1000        ;; safety cap
+
+  ;; initialize any scenario parameters
+  ;; (carrier distance, NGFS toggles, etc.)
+end
+```
+
+---
+
+## 6. SIMULATION SETUP (VERY IMPORTANT)
+
+⚠️ DO NOT USE clear-all here
+
+This resets ONLY per-simulation state:
+
+```netlogo
+to setup-simulation
+  clear-turtles
+  reset-ticks
+
+  ;; reinitialize troop positions, morale, etc.
+  ;; DO NOT reset global experiment variables
+end
+```
+
+---
+
+## 7. MAIN ADAPTIVE CONTROLLER
+
+```netlogo
+to run-until-converged
+
+  ;; reset experiment state
+  set runs 0
+  set british-wins 0
+  set durations []
+  set p-hat 0
+  set moe 1
+  set std-duration 0
+
+  while [true] [
+
+    ;; run one simulation
+    setup-simulation
+    go-until-end
+
+    ;; record outcome
+    if british-win? [
+      set british-wins british-wins + 1
+    ]
+
+    set durations lput conflict-duration durations
+    set runs runs + 1
+
+    ;; update statistics
+    update-stats
+
+    ;; optional debug output
+    print (word "Run: " runs
+                " | p: " precision p-hat 3
+                " | MOE: " precision moe 4)
+
+    ;; stopping condition
+    if (runs > 30) and (moe < target-moe) [
+      stop
+    ]
+
+    ;; safety stop
+    if runs >= max-runs [
+      print "Max runs reached without convergence"
+      stop
+    ]
+  ]
+end
+```
+
+---
+
+## 8. RUN-UNTIL-END PROCEDURE
+
+```netlogo
+to go-until-end
+  while [not simulation-over?] [
+    go-step
+  ]
+end
+```
+
+---
+
+## 9. SINGLE STEP LOGIC (RENAME YOUR CURRENT go)
+
+⚠️ IMPORTANT: rename your existing `go` logic to `go-step`
+
+```netlogo
+to go-step
+  ;; ALL EXISTING MODEL LOGIC GOES HERE
+
+  ;; troop movement
+  ;; combat
+  ;; NGFS
+  ;; terrain effects
+
+  tick
+end
+```
+
+---
+
+## 10. STATISTICS UPDATE FUNCTION
+
+```netlogo
+to update-stats
+
+  set p-hat british-wins / runs
+
+  ;; margin of error for proportion
+  set moe z-score * sqrt((p-hat * (1 - p-hat)) / runs)
+
+  ;; duration standard deviation
+  if length durations > 1 [
+    set std-duration standard-deviation durations
+  ]
+end
+```
+
+---
+
+## 11. FINAL REPORTERS FOR BEHAVIORSPACE
+
+These are what BehaviorSpace will export:
+
+```netlogo
+to-report final-p
+  report p-hat
+end
+
+to-report final-duration-mean
+  report mean durations
+end
+
+to-report final-duration-std
+  report std-duration
+end
+
+to-report final-runs-used
+  report runs
+end
+
+to-report final-moe
+  report moe
+end
+```
+
+---
+
+## ⚙️ BEHAVIORSPACE CONFIGURATION
+
+---
+
+### Experiment Setup:
+
+* Setup command:
+
+```
+setup
+```
+
+* Go command:
+
+```
+go
+```
+
+* Repetitions:
+
+```
+1
+```
+
+⚠️ IMPORTANT: Set repetitions = 1
+Because internal loop handles sampling
+
+---
+
+### Metrics to Record:
+
+```
+final-p
+final-duration-mean
+final-duration-std
+final-runs-used
+final-moe
+```
+
+---
+
+### Parameter Sweeps (Example):
+
+```
+carrier-distance = [50 100 150 200]
+ngfs-enabled = [true false]
+```
+
+---
+
+## 📊 OUTPUT INTERPRETATION
+
+Each row in CSV represents:
+
+* One parameter configuration
+* Fully converged Monte Carlo result
+
+Example:
+
+| carrier-distance | final-p | final-duration-mean | runs-used | MOE   |
+| ---------------- | ------- | ------------------- | --------- | ----- |
+| 50               | 0.72    | 41                  | 312       | 0.049 |
+
+---
+
+## ⚠️ CRITICAL REQUIREMENTS
+
+---
+
+### 1. NEVER call `setup` inside loop
+
+Use `setup-simulation`
+
+---
+
+### 2. ALWAYS include:
+
+```
+if runs > 30
+```
+
+Prevents early instability
+
+---
+
+### 3. ALWAYS include max-runs safety cap
+
+---
+
+### 4. ENSURE:
+
+* Each simulation is independent
+* No state leaks between runs
+
+---
+
+### 5. RANDOMNESS
+
+Ensure each simulation varies:
+
+```netlogo
+random-seed new-seed
+```
+
+(or allow NetLogo default randomness)
+
+---
+
+## 🚀 EXTENSIONS (OPTIONAL)
+
+---
+
+### Add duration convergence:
+
+```netlogo
+let duration-moe z-score * (std-duration / sqrt(runs))
+
+if (moe < target-moe) and (duration-moe < duration-threshold) [
+  stop
+]
+```
+
+---
+
+### Add CSV export (manual alternative)
+
+```netlogo
+file-open "results.csv"
+file-print (word runs "," p-hat "," moe)
+file-close
+```
+
+---
+
+## 🧠 FINAL RESULT
+
+This implementation enables:
+
+* Sequential Monte Carlo sampling
+* Adaptive stopping based on confidence intervals
+* Parameter sweeps via BehaviorSpace
+* Statistically rigorous outputs
+
+---
+
+## ✅ END STATE
+
+You can confidently report:
+
+> “Each configuration was simulated using adaptive Monte Carlo sampling until the 95% confidence interval width fell below ±5%.”
+
+---
