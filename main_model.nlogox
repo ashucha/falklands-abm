@@ -94,7 +94,7 @@ to setup
   set attacks 0
   set intercepts 0
   set failures 0
-  set faa-jets 99
+  set faa-jets 75
   set faa-losses 0
   set amphibs-landed 0
   set carriers-hit 0
@@ -151,6 +151,20 @@ to setup
   reset-ticks
 end
 
+to check-end-condition
+  ;; condition 1: FAA remaining is 50 or fewer
+  let faa-low? (faa-jets <= 50)
+  
+  ;; condition 2: all amphibs have landed (adjust 25 if needed)
+  let amphibs-complete? (amphibs-landed + amphibs-hit >= 25)
+  
+  ;; if both conditions are met, stop the simulation
+  if faa-low? and amphibs-complete? [
+    show "End condition met: FAA depleted and amphibs landed"
+    stop
+  ]
+end
+
 ;; this is the core loop that runs all of the turtles' logic each tick
 to go
   advance-time minutes-per-tick
@@ -167,6 +181,7 @@ to go
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
   ask destroyers [ execute-logic-destroyer ]
+  check-end-condition
   tick
 end
 
@@ -201,7 +216,7 @@ end
     <monitor x="170" precision="17" y="445" height="60" fontSize="11" width="100" display="Conflict Days">conflict-days</monitor>
     <switch x="130" y="50" height="40" on="true" variable="show-waypoints?" width="135" display="show-waypoints?"></switch>
     <switch x="270" y="50" height="40" on="true" variable="show-caps?" width="100" display="show-caps?"></switch>
-    <chooser x="160" y="160" height="60" variable="spawn-zone" current="5" width="250" display="spawn-zone">
+    <chooser x="160" y="160" height="60" variable="spawn-zone" current="2" width="250" display="spawn-zone">
       <choice type="string" value="zone-1"></choice>
       <choice type="string" value="zone-2"></choice>
       <choice type="string" value="zone-3"></choice>
@@ -253,7 +268,7 @@ end
       </pen>
       <pen interval="1.0" mode="0" display="# FAA Jets" color="-817084" legend="true">
         <setup></setup>
-        <update>plot faa-jets</update>
+        <update>plot (75 - faa-losses)</update>
       </pen>
       <pen interval="1.0" mode="0" display="Amphibs Landed" color="-10402772" legend="true">
         <setup></setup>
