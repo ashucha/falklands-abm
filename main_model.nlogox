@@ -94,7 +94,7 @@ to setup
   set attacks 0
   set intercepts 0
   set failures 0
-  set faa-jets 99
+  set faa-jets 75
   set faa-losses 0
   set amphibs-landed 0
   set carriers-hit 0
@@ -178,6 +178,7 @@ to go
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
   ask destroyers [ execute-logic-destroyer ]
+  check-end-condition
   tick
 end
 
@@ -264,7 +265,7 @@ end
       </pen>
       <pen interval="1.0" mode="0" display="# FAA Jets" color="-817084" legend="true">
         <setup></setup>
-        <update>plot faa-jets</update>
+        <update>plot (75 - faa-losses)</update>
       </pen>
       <pen interval="1.0" mode="0" display="Amphibs Landed" color="-10402772" legend="true">
         <setup></setup>
