@@ -22,6 +22,16 @@ globals [
   ;; NetLogo will complain about duplicate globals.  The variables are
   ;; still used elsewhere (e.g. in setup-ground) but their declaration
   ;; is managed by the widgets.
+
+  ;; harness inputs/state
+  trial-id
+  trial-seed-ground
+  ground-battle-start-input
+  air-battle-end-input
+  destroyers-remaining-input
+  frigates-remaining-input
+  ground-trial-done?
+  ground-battle-end-string
 ] 
 
 ;; setting up the types of turtles <plural name> <singular name>
@@ -38,6 +48,15 @@ turtles-own [ state speed ]
 ;; initializes everything
 to setup
   clear-all  
+  if not is-number? trial-id [ set trial-id -1 ]
+  if not is-number? trial-seed-ground [ set trial-seed-ground 0 ]
+  random-seed trial-seed-ground
+  if not is-string? ground-battle-start-input [ set ground-battle-start-input "" ]
+  if not is-string? air-battle-end-input [ set air-battle-end-input "" ]
+  if not is-number? destroyers-remaining-input [ set destroyers-remaining-input -1 ]
+  if not is-number? frigates-remaining-input [ set frigates-remaining-input -1 ]
+  set ground-trial-done? false
+  set ground-battle-end-string ""
   ;; initialize ground metrics
   set british-casualties 0
   set argentine-casualties 0
@@ -71,8 +90,11 @@ end
 
 ;; main simulation loop
 to go
+  if ground-trial-done? [ stop ]
   ;; check if simulation should end
   if count (turtle-set regular-infantries royal-marines special-forces) = 0 or count (turtle-set conscripts arg-elites) = 0 [
+    set ground-battle-end-string current-date-string
+    set ground-trial-done? true
     stop
   ]
   advance-time minutes-per-tick

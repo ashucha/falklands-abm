@@ -52,6 +52,15 @@ globals [
   skyhawk-max-speed skyhawk-cruise-speed skyhawk-range
   sue-max-speed sue-cruise-speed sue-range
   bomb-range exocet-range
+
+  ;; harness inputs/state
+  trial-id
+  trial-seed
+  faa-loss-threshold
+  naval-trial-done?
+  air-battle-end-string
+  ground-battle-start-string
+  initial-amphib-count
   
 ] 
 
@@ -81,6 +90,11 @@ daggers-own [ bombs launch aircraft ]
 ;; initializes everything
 to setup
   clear-all
+
+  if not is-number? trial-id [ set trial-id -1 ]
+  if not is-number? trial-seed [ set trial-seed 0 ]
+  if not is-number? faa-loss-threshold [ set faa-loss-threshold 21 ]
+  random-seed trial-seed
   
   setup-map
   draw-x-limits
@@ -101,6 +115,9 @@ to setup
   set frigates-hit 0
   set destroyers-hit 0
   set amphibs-hit 0
+  set naval-trial-done? false
+  set air-battle-end-string ""
+  set ground-battle-start-string ""
   
   set cur-min 0
   set cur-hour 0
@@ -124,6 +141,7 @@ to setup
 ;   setup-amphibs
   setup-shars
   setup-faa-constants
+  set initial-amphib-count count amphibs
   
   ;; CAP labels
   if show-caps? [
@@ -161,6 +179,7 @@ end
 
 ;; this is the core loop that runs all of the turtles' logic each tick
 to go
+  if naval-trial-done? [ stop ]
   if end-condition [
     stop
   ]
@@ -178,7 +197,27 @@ to go
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
   ask destroyers [ execute-logic-destroyer ]
+  maybe-mark-ground-battle-start
+  maybe-end-air-battle
   tick
+end
+
+to maybe-mark-ground-battle-start
+  if ground-battle-start-string = "" and initial-amphib-count > 0 [
+    if amphibs-landed >= initial-amphib-count [
+      set ground-battle-start-string current-date-string
+    ]
+  ]
+end
+
+to maybe-end-air-battle
+  if (99 - faa-jets) >= faa-loss-threshold [
+    if air-battle-end-string = "" [
+      set air-battle-end-string current-date-string
+    ]
+    set naval-trial-done? true
+    stop
+  ]
 end
 
 ;; Generic RNG function
