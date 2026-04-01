@@ -40,27 +40,24 @@ class NetLogoRunner:
 
     Requires:
       pip install pyNetLogo
-    and either:
-      - NETLOGO_HOME env var, or
-      - netlogo_home passed in constructor.
+    and a resolved NetLogo install directory (containing app/*.jar), passed as
+    netlogo_home. Use harness.netlogo_paths.resolve_netlogo_home() so
+    NETLOGO_HOME / --netlogo-home / sibling discovery are applied consistently.
     """
 
-    def __init__(self, netlogo_home: Path | None = None) -> None:
+    def __init__(self, netlogo_home: Path) -> None:
         try:
-            import pyNetLogo  # type: ignore
+            import pynetlogo  # type: ignore
         except Exception as exc:  # pragma: no cover
             raise RuntimeError(
                 "pyNetLogo is required. Install with: pip install pyNetLogo"
             ) from exc
 
-        self._pyNetLogo = pyNetLogo
-        self._netlogo_home = str(netlogo_home) if netlogo_home else None
+        self._pyNetLogo = pynetlogo
+        self._netlogo_home = str(netlogo_home.resolve())
 
     def _new_link(self, model_path: Path):
-        kwargs: dict[str, Any] = {"gui": False}
-        if self._netlogo_home:
-            kwargs["netlogo_home"] = self._netlogo_home
-        link = self._pyNetLogo.NetLogoLink(**kwargs)
+        link = self._pyNetLogo.NetLogoLink(gui=False, netlogo_home=self._netlogo_home)
         link.load_model(str(model_path))
         return link
 

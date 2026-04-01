@@ -124,10 +124,25 @@ def write_input_csv(path: Path, trials: Iterable[TrialSpec]) -> None:
 
 
 def write_output_csv(path: Path, results: Iterable[TrialResult]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(OUTPUT_COLUMNS))
-        writer.writeheader()
-        for r in results:
-            row = asdict(r)
-            row["success"] = "1" if r.success else "0"
-            writer.writerow(row)
+    """
+    Replace the entire file each run (no append). Writes via a temp file in the
+    same directory then replaces the target so a crash mid-write never leaves a
+    half-written CSV that looks like a finished run.
+    """
+    path = path.resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = list(results)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tmp.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(OUTPUT_COLUMNS))
+            writer.writeheader()
+            for r in rows:
+                row = asdict(r)
+                row["success"] = "1" if r.success else "0"
+                writer.writerow(row)
+        tmp.replace(path)
+    except Exception:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+        raise

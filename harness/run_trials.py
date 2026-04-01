@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from netlogo_paths import netlogo_java_cwd, resolve_netlogo_home
 from netlogo_runner import GroundInputs, NetLogoRunner
 from trial_io import ALLOWED_ZONES, TrialResult, TrialSpec, read_input_csv, write_input_csv, write_output_csv
 
@@ -55,7 +56,8 @@ def generate_balanced_trials(total_trials: int, base_seed: int) -> list[TrialSpe
     return trials
 
 
-def detect_netlogo_version() -> str:
+def detect_netlogo_version(install_root: Path) -> str:
+    java_cwd = netlogo_java_cwd(install_root)
     cmd = [
         "java",
         "-cp",
@@ -64,7 +66,13 @@ def detect_netlogo_version() -> str:
         "--version",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=java_cwd,
+        )
     except FileNotFoundError:
         return "unknown"
     out = (result.stdout or "").strip() or (result.stderr or "").strip()
@@ -90,19 +98,21 @@ def main() -> None:
     ensure_parent(args.output_csv)
     ensure_parent(args.manifest_json)
 
+    netlogo_home = resolve_netlogo_home(args.netlogo_home)
+
     if args.input_csv.exists():
         trials = read_input_csv(args.input_csv)
     else:
         trials = generate_balanced_trials(args.total_trials, args.base_seed)
         write_input_csv(args.input_csv, trials)
 
-    netlogo_version = detect_netlogo_version()
+    netlogo_version = detect_netlogo_version(netlogo_home)
     if args.fail_on_netlogo_version_mismatch and not netlogo_version.startswith("NetLogo 7.0"):
         raise RuntimeError(
             f"Expected NetLogo 7.0.x but detected: {netlogo_version}"
         )
 
-    runner = NetLogoRunner(netlogo_home=args.netlogo_home)
+    runner = NetLogoRunner(netlogo_home=netlogo_home)
     run_timestamp = datetime.now(timezone.utc).isoformat()
     results: list[TrialResult] = []
 
@@ -175,7 +185,6 @@ def main() -> None:
                     runtime_seconds=elapsed,
                 )
             )
-
     write_output_csv(args.output_csv, results)
 
     manifest = {
@@ -183,8 +192,10 @@ def main() -> None:
         "platform": platform.platform(),
         "python_version": platform.python_version(),
         "netlogo_version": netlogo_version,
+        "netlogo_home": str(netlogo_home),
         "base_seed": args.base_seed,
         "total_trials": len(trials),
+        "output_rows_written": len(results),
         "faa_loss_threshold": args.faa_loss_threshold,
         "main_model": str(args.main_model),
         "ground_model": str(args.ground_model),

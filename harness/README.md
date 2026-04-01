@@ -11,6 +11,7 @@ This harness runs repeated NetLogo trials with:
 
 - `harness/run_trials.py`: main CLI entrypoint
 - `harness/trial_io.py`: CSV schemas + validation
+- `harness/netlogo_paths.py`: resolve NetLogo install (`app/*.jar`)
 - `harness/netlogo_runner.py`: pyNetLogo wrapper
 
 ## Requirements
@@ -25,6 +26,16 @@ Install:
 ```bash
 pip install pyNetLogo
 ```
+
+## NetLogo install path
+
+pyNetLogo must receive the **full** NetLogo directory that contains `app/*.jar` (a portable unzip of NetLogo, not only the `.app` GUI bundle unless that path contains `app/`). The harness resolves the install in this order:
+
+1. `--netlogo-home`
+2. Environment variable `NETLOGO_HOME`
+3. A sibling directory of the **course folder** (parent of `Team Project`) whose name contains `netlogo` (case-insensitive) and that contains `app/*.jar`—for example `../NetLogo 7.0.3` next to `Team Project`.
+
+If none match, the run fails with a clear error instead of falling back to a broken auto-discovered install.
 
 ## Input CSV schema
 
@@ -48,6 +59,8 @@ If input CSV is absent, the harness auto-generates one with:
 
 ## Output CSV schema
 
+The output path is **fully replaced** on each successful end-to-end run (one row per input trial, header plus data). There is no append mode. If a run crashes before the write finishes, you may see no update, a missing file, or a stray `*.tmp` next to the CSV; compare `run_timestamp` in the manifest and in column `run_timestamp` to confirm you are looking at the latest run.
+
 One row per trial with combined naval + ground + execution metadata:
 
 - identity: `trial_id`, `spawn_zone`, `trial_seed`, `run_timestamp`
@@ -62,6 +75,8 @@ Each run also writes `run_manifest.json` with metadata:
 - timestamp
 - platform and Python version
 - detected NetLogo version
+- resolved `netlogo_home` path used for this run
+- `output_rows_written` (should match input trial count when the run completed)
 - seeds and trial counts
 - model and CSV paths
 
