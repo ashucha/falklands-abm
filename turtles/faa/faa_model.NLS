@@ -1,16 +1,16 @@
 faas-own [
-  aircraft-type   ;; "dagger" "skyhawk" "sue"
-  num-flight      ;; number of aircraft in the formation
-;;  range-left      ;; remaining range the formation can still fly
-  weapons         ;; number of weapons loadout in entire formation
-  weapon-range    ;; distance aircraft can attack from
-  max-speed       ;; max speed of aircraft type
-  cruise-speed    ;; cruise speed of aircraft type
-  det-range       ;; detection range for shars
-  objx            ;; task force x 
-  objy            ;; task force y
+  aircraft-type
+  num-flight
+  weapons
+  weapon-range
+  max-speed
+  cruise-speed
+  det-range
+  objx
+  objy
   spawn-x
   spawn-y
+  target-ship
 ]
 
 ;; This sets constants and parameters for dagger, skyhawk, and super etendard
@@ -30,7 +30,7 @@ to setup-faa-constants
   set sue-range 500 / mi-per-patch ;; CHANGE BASED ON MAP SIZE!! 500 miles -> to patches
   
   set bomb-range   3 / mi-per-patch    ;; CHANGE
-  set exocet-range 5 / mi-per-patch    ;; CHANGE
+  set exocet-range 3 / mi-per-patch    ;; CHANGE
   
 end
 
@@ -40,6 +40,8 @@ to launch-faa
   set attacks attacks + 1
 
   create-faas 1 [
+    set target-ship nobody
+    
     set size 4
 
     let r random-float 1.0
@@ -81,12 +83,64 @@ to launch-faa
     set spawn-y random-ycor
     setxy spawn-x spawn-y
 
-    let nearest-carrier min-one-of carriers [ distance myself ]
-    if nearest-carrier != nobody [
-      set objx [xcor] of nearest-carrier
-      set objy [ycor] of nearest-carrier
+    if aircraft-type = "sue" [
+      let target min-one-of carriers [ distance myself ]
+      if target != nobody [
+        set objx [xcor] of target
+        set objy [ycor] of target
+      ]
     ]
-   
+    
+    if aircraft-type = "sue" [
+      let target min-one-of carriers [ distance myself ]
+      if target != nobody [
+        set target-ship target
+        set objx [xcor] of target
+        set objy [ycor] of target
+      ]
+    ]
+    
+    if aircraft-type = "dagger" or aircraft-type = "skyhawk" [
+      let target nobody
+      let k random-float 1.0
+      
+      ;; weighted preferred target type
+      if k < 0.2 [
+        if any? amphibs [
+          set target one-of amphibs
+        ]
+      ]
+      
+      if k >= 0.2 and k < 0.6 [
+        if any? frigates [
+          set target one-of frigates
+        ]
+      ]
+      
+      if k >= 0.6 [
+        if any? destroyers [
+          set target one-of destroyers
+        ]
+      ]
+      
+      ;; fallback: if chosen type is gone, pick any remaining ship
+      if target = nobody [
+        let fallback-targets (turtle-set amphibs frigates destroyers)
+        if any? fallback-targets [
+          set target one-of fallback-targets
+        ]
+      ]
+      
+      if target != nobody [
+        set target-ship target
+        set objx [xcor] of target
+        set objy [ycor] of target
+      ]
+      
+      create-target-link-with target-ship [
+        set color yellow
+      ]
+    ]
 
     set state "transit"
     set speed cruise-speed
@@ -98,6 +152,26 @@ end
 
 to move-faas
   ask faas [
+    ;; delete old links
+    ask my-links [ die ]
+    
+    ;; update target ship
+    if target-ship != nobody [
+      ifelse is-turtle? target-ship [
+        set objx [xcor] of target-ship
+        set objy [ycor] of target-ship
+      ] [
+        set state "rtb"
+      ]
+    ]
+    
+    ;; create new links
+    if target-ship != nobody [
+      create-target-link-with target-ship [
+        set color yellow
+      ]
+    ]
+    
     ;; type-based eastward mission limit
     let x-limit 0
     
@@ -135,32 +209,46 @@ to move-faas
     ;; attack phase
     if state = "attack" [
       set speed 0
-
-      ;; drop weapons on ships/carriers within weapon range
-      ;; (attack occurs before Harrier interception)
+      
+      ;; only SUEs can attack carriers
       if aircraft-type = "sue" [
         let target-carriers carriers in-radius weapon-range
         let carrier-shots min (list weapons count target-carriers)
-
+        
         repeat carrier-shots [
           let target one-of target-carriers
-          ask target [ die ]
+          let p-hit-exocet 0.9 ;; EXOCET PROBABILITY OF KILL
+          ask target [
+            if random-float 1.0 < p-hit-exocet [
+              set carriers-hit carriers-hit + 1
+              die
+            ]
+          ]
           set weapons weapons - 1
           set target-carriers target-carriers with [ self != target ]
         ]
       ]
-
-      ;; all FAA aircraft can attack ships
-      let target-ships ships in-radius weapon-range
+      
+      ;; all FAA aircraft can attack non-carrier naval vessels
+      let target-ships (turtle-set frigates destroyers amphibs) in-radius weapon-range
       let ship-shots min (list weapons count target-ships)
-
+      
       repeat ship-shots [
         let target one-of target-ships
-        ask target [ die ]
+        let p-hit-bomb 0.3 ;; BOMB PROBABILITY
+        
+        ask target [
+          if random-float 1.0 < p-hit-bomb [
+            if breed = frigates [ set frigates-hit frigates-hit + 1 ]
+            if breed = destroyers [ set destroyers-hit destroyers-hit + 1 ]
+            if breed = amphibs [ set amphibs-hit amphibs-hit + 1 ]
+            die
+          ]
+        ]
         set weapons weapons - 1
         set target-ships target-ships with [ self != target ]
       ]
-
+      
       ;; Harriers can intercept FAA during or after the attack run
       if any? shars in-radius det-range [
         if RNG aim9l-pkill [
@@ -168,7 +256,7 @@ to move-faas
           if num-flight <= 0 [ die ]
         ]
       ]
-
+      
       ;; after completing the attack pass, leave the area
       if weapons > 0 [
         if aircraft-type = "sue" [
@@ -251,5 +339,27 @@ end
 to spawn-faa?
   if (ticks + 50) mod 100 = 0 [
     launch-faa
+  ]
+end
+
+;; draw lines on map
+to draw-x-limits
+  let skyhawk-x min-pxcor + 0.60 * (max-pxcor - min-pxcor)
+  let dagger-x  min-pxcor + 0.70 * (max-pxcor - min-pxcor)
+  let sue-x     min-pxcor + 0.80 * (max-pxcor - min-pxcor)
+
+  ;; Skyhawk line (e.g., green)
+  ask patches with [ pxcor = round skyhawk-x ] [
+    set pcolor green
+  ]
+
+  ;; Dagger line (e.g., red)
+  ask patches with [ pxcor = round dagger-x ] [
+    set pcolor red
+  ]
+
+  ;; SUE line (e.g., black)
+  ask patches with [ pxcor = round sue-x ] [
+    set pcolor black
   ]
 end
