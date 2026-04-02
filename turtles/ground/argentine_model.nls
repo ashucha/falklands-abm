@@ -158,7 +158,7 @@ to-report argentine-survives-tick?
   ;; Caller (run-argentine-troops) owns the die action
   if should-surrender? [
     set surrenders-total surrenders-total + 1
-    set argentine-casualties argentine-casualties + 1
+    set argentine-casualties argentine-casualties + 1 ; Noah: why casualties and surrenders bundled together?
     report false
   ]
   report true

@@ -1,0 +1,178 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; INPUT PARSING & INITIALIZATION
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to parse-ground-battle-start-date
+  ;; Expect format: "May 21 1982 - 00:00"
+  ;; Extract month, day, year, hour, minute
+  let use-fallback? false
+  
+  if not is-string? ground-battle or ground-battle = "" [
+    set use-fallback? true
+  ]
+  
+  ifelse not use-fallback? [
+    let date-parts parse-date-string ground-battle
+    ifelse date-parts != false [
+      set cur-month item 0 date-parts
+      set cur-day item 1 date-parts
+      set cur-year item 2 date-parts
+      set cur-hour item 3 date-parts
+      set cur-min item 4 date-parts
+      set ground-battle-start-string ground-battle
+    ] [
+      set use-fallback? true
+    ]
+  ] [
+    set use-fallback? true
+  ]
+
+  if use-fallback? [
+    ;; Fallback: May 21, 1982 00:00
+    set cur-month 5
+    set cur-day 21
+    set cur-year 1982
+    set cur-hour 0
+    set cur-min 0
+    set ground-battle-start-string "May 21 1982 - 00:00"
+    show "[SETUP] WARNING: ground-battle not set or invalid, using May 21 1982 00:00"
+  ]
+end
+
+to-report parse-date-string [date-str]
+  ;; Parse "May 21 1982 - 00:30"
+  ;; Returns [month day year hour minute] or false if parse fails
+  if not is-string? date-str or date-str = "" [ report false ]
+
+  let month-map ["" "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"]
+  
+  ;; Split by " - " to get date part and time part
+  let parts split-string date-str " - "
+  if length parts < 2 [ report false ]
+  
+  let date-part item 0 parts
+  let time-part item 1 parts
+  
+  ;; Parse date part: "May 21 1982"
+  let date-words split-string date-part " "
+  if length date-words < 3 [ report false ]
+  
+  let month-str item 0 date-words
+  let day-str item 1 date-words
+  let year-str item 2 date-words
+  
+  ;; Find month number from month name
+  let month-num 0
+  let i 1
+  repeat 12 [
+    if item i month-map = month-str [ set month-num i ]
+    set i i + 1
+  ]
+  if month-num = 0 [ report false ]
+  
+  ;; Parse time part: "00:30"
+  let time-words split-string time-part ":"
+  if length time-words < 2 [ report false ]
+  
+    let hour-val (read-from-string (item 0 time-words))
+    let min-val (read-from-string (item 1 time-words))
+    
+    let day-val (read-from-string day-str)
+    let year-val (read-from-string year-str)
+  
+  ;; Return [month day year hour minute]
+  report (list month-num day-val year-val hour-val min-val)
+end
+
+to-report split-string [str sep]
+  ;; Split string by separator
+  if not is-string? str or not is-string? sep [ report (list str) ]
+  
+  let result []
+  let current ""
+  let sep-len length sep
+  let i 0
+  
+  while [i <= (length str - sep-len)] [
+    let substr substring str i (i + sep-len)
+    ifelse substr = sep [
+      set result lput current result
+      set current ""
+      set i i + sep-len
+    ] [
+      set current (word current (substring str i (i + 1)))
+      set i i + 1
+    ]
+  ]
+  
+  ;; Handle remaining characters at the end
+  if i < length str [
+    set current (word current (substring str i (length str)))
+  ]
+  
+  set result lput current result
+  
+  report result
+end
+
+to set-conflict-days [n]
+  set conflict-days n
+end
+
+to initialize-ships-from-air-battle
+  ;; Derive ship availability from air battle outcomes, or use dummy data if not provided
+  ;; Ships are simulated as a pool; NGFS effectiveness depends on count
+  
+  if not is-number? destroyers-remaining-input [ set destroyers-remaining-input 0 ]
+  if not is-number? frigates-remaining-input [ set frigates-remaining-input 0 ]
+  
+  ;; Check if harness provided real ship data (either destroyers or frigates count > 0)
+  let using-harness-data? (destroyers-remaining-input > 0 or frigates-remaining-input > 0)
+  
+  ifelse using-harness-data? [
+    ;; Use harness data: build ship IDs from destroyer/frigate counts
+    set ships-alive []
+    let ship-id 1
+    
+    ;; Add destroyers (max 7)
+    repeat min list destroyers-remaining-input 7 [
+      set ships-alive lput ship-id ships-alive
+      set ship-id ship-id + 1
+    ]
+    
+    ;; Add frigates (max 6, total max 13)
+    repeat min list frigates-remaining-input (13 - length ships-alive) [
+      set ships-alive lput ship-id ships-alive
+      set ship-id ship-id + 1
+    ]
+    
+    show (word "[SETUP] Ships available: " length ships-alive " (harness: destroyers:" destroyers-remaining-input ", frigates:" frigates-remaining-input ")")
+  ] [
+    ;; Fallback: use dummy ships-data to build ship list
+    set ships-alive []
+    if is-list? ships-data [
+      foreach ships-data [ ship-entry ->
+        let ship-id item 0 ship-entry
+        set ships-alive lput ship-id ships-alive
+      ]
+    ]
+    
+    show (word "[SETUP] Ships available: " length ships-alive " (dummy data, no harness input)")
+  ]
+  
+  ;; Validate NGFS parameters
+  if not is-number? ngfs-base-fire-interval [ set ngfs-base-fire-interval 8 ]
+  if ngfs-base-fire-interval < 1 [ set ngfs-base-fire-interval 8 ]
+  
+  if not is-number? ngfs-ship-range [ set ngfs-ship-range 15 ]
+  if ngfs-ship-range < 1 [ set ngfs-ship-range 15 ]
+  
+  if not is-number? ngfs-dispersion-radius [ set ngfs-dispersion-radius 2 ]
+  if ngfs-dispersion-radius < 0 [ set ngfs-dispersion-radius 2 ]
+  
+  if ngfs-mode != "realistic" and ngfs-mode != "all-map" [
+    set ngfs-mode "realistic"
+  ]
+  
+  if ngfs-enabled? != true and ngfs-enabled? != false [ set ngfs-enabled? true ]
+end

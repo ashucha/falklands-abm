@@ -35,6 +35,7 @@ class TrialResult:
     ground_conflict_days: float
     british_kia: int
     argentine_kia: int
+    argentine_sur: int
     success: bool
     error_message: str
     runtime_seconds: float
@@ -60,6 +61,7 @@ OUTPUT_COLUMNS = (
     "ground_conflict_days",
     "british_kia",
     "argentine_kia",
+    "argentine_sur",
     "success",
     "error_message",
     "runtime_seconds",

@@ -83,6 +83,7 @@ def map_naval_to_ground_inputs(naval) -> GroundInputs:
     return GroundInputs(
         ground_battle_start=naval.ground_battle_start,
         air_battle_end=naval.air_battle_end,
+        amphibs_landed=naval.amphibs_landed,
         ship_coords=naval.ship_coords
     )
 
@@ -153,6 +154,7 @@ def main() -> None:
                     ground_conflict_days=ground.conflict_days,
                     british_kia=ground.british_kia,
                     argentine_kia=ground.argentine_kia,
+                    argentine_sur=ground.argentine_sur,
                     success=True,
                     error_message="",
                     runtime_seconds=elapsed,
@@ -179,6 +181,7 @@ def main() -> None:
                     ground_conflict_days=0.0,
                     british_kia=0,
                     argentine_kia=0,
+                    argentine_sur=0,
                     success=False,
                     error_message=str(exc),
                     runtime_seconds=elapsed,

@@ -23,6 +23,7 @@ class NavalOutputs:
 class GroundInputs:
     ground_battle_start: str
     air_battle_end: str
+    amphibs_landed: int
     ship_coords: str
 
 
@@ -32,6 +33,7 @@ class GroundOutputs:
     conflict_days: float
     british_kia: int
     argentine_kia: int
+    argentine_sur: int
 
 
 class NetLogoRunner:
@@ -106,6 +108,7 @@ class NetLogoRunner:
             nl.command(f"set trial-seed-ground {trial_seed_ground}")
             nl.command(f'set ground-battle-start-input "{ground_inputs.ground_battle_start}"')
             nl.command(f'set air-battle-end-input "{ground_inputs.air_battle_end}"')
+            nl.command(f'set amphibs-landed {ground_inputs.amphibs_landed}')
             # TODO: do something with ships_coords, connect the tuples to whatever bombarding code they have
             nl.command("setup")
             nl.command("while [not ground-trial-done?] [ go ]")
@@ -115,6 +118,7 @@ class NetLogoRunner:
                 conflict_days=float(nl.report("conflict-days")),
                 british_kia=int(nl.report("british-casualties")),
                 argentine_kia=int(nl.report("argentine-casualties")),
+                argentine_sur=int(nl.report("surrenders-total")),
             )
         finally:
             nl.kill_workspace()
