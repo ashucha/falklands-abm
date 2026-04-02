@@ -84,7 +84,9 @@ def map_naval_to_ground_inputs(naval) -> GroundInputs:
         ground_battle_start=naval.ground_battle_start,
         air_battle_end=naval.air_battle_end,
         amphibs_landed=naval.amphibs_landed,
-        ship_coords=naval.ship_coords
+        ship_coords=naval.ship_coords,
+        destroyers_remaining=naval.destroyers_remaining,
+        frigates_remaining=naval.frigates_remaining,
     )
 
 
@@ -119,6 +121,7 @@ def main() -> None:
     # Deterministic write-order by trial_id.
     for t in sorted(trials, key=lambda x: x.trial_id):
         start = time.perf_counter()
+        print(f'Running trial {t.trial_id}')
         try:
             naval = runner.run_naval_trial(
                 model_path=args.main_model,
