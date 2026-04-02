@@ -164,7 +164,7 @@ british-troops-own [
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup
-  clear-all
+  ;clear-all
   
   ;; Seed RNG per trial (use trial-seed-ground if set, else trial-id)
   if not is-number? trial-seed-ground [ set trial-seed-ground trial-id ]

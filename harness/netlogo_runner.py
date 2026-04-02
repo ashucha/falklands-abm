@@ -73,12 +73,13 @@ class NetLogoRunner:
     ) -> NavalOutputs:
         nl = self._new_link(model_path)
         try:
+            nl.command(f'clear-all')
             nl.command(f"set trial-id {trial_id}")
             nl.command(f"set trial-seed {trial_seed}")
             nl.command(f"set faa-loss-threshold {faa_loss_threshold}")
             nl.command(f'set spawn-zone "{spawn_zone}"')
             nl.command("setup")
-            nl.command("while [not naval-trial-done?] [ go ]")
+            nl.command("while [not (naval-trial-done? and ground-trial-started?)] [ go ]")
 
             return NavalOutputs(
                 air_battle_end=str(nl.report("air-battle-end-string")),
@@ -104,17 +105,21 @@ class NetLogoRunner:
     ) -> GroundOutputs:
         nl = self._new_link(model_path)
         try:
+            nl.command(f'clear-all')
             nl.command(f"set trial-id {trial_id}")
             nl.command(f"set trial-seed-ground {trial_seed_ground}")
-            nl.command(f'set ground-battle-start-input "{ground_inputs.ground_battle_start}"')
-            nl.command(f'set air-battle-end-input "{ground_inputs.air_battle_end}"')
+            #nl.command(f'set ground-battle-start-string "{ground_inputs.ground_battle_start}"')
+            #nl.command(f'set air-battle-end-input "{ground_inputs.air_battle_end}"')
+            nl.command(f'set ground-battle "{ground_inputs.ground_battle_start}"')
+            print(f'set ground-battle "{ground_inputs.ground_battle_start}"')
+            nl.command(f'set air-battle-end "{ground_inputs.air_battle_end}"')
             nl.command(f'set amphibs-landed {ground_inputs.amphibs_landed}')
             # TODO: do something with ships_coords, connect the tuples to whatever bombarding code they have
             nl.command("setup")
             nl.command("while [not ground-trial-done?] [ go ]")
 
             return GroundOutputs(
-                ground_battle_end=str(nl.report("ground-battle-end-string")),
+                ground_battle_end=str(nl.report("ground-battle-end")),
                 conflict_days=float(nl.report("conflict-days")),
                 british_kia=int(nl.report("british-casualties")),
                 argentine_kia=int(nl.report("argentine-casualties")),

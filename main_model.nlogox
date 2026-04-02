@@ -58,6 +58,7 @@ globals [
   trial-seed
   faa-loss-threshold
   naval-trial-done?
+  ground-trial-started?
   air-battle-end-string
   ground-battle-start-string
   initial-amphib-count
@@ -89,7 +90,7 @@ daggers-own [ bombs launch aircraft ]
 
 ;; initializes everything
 to setup
-  clear-all
+  ;clear-all
 
   if trial-id = 0 [ set trial-id -1 ]
   if trial-seed = 0 [ set trial-seed 20260402 ]
@@ -117,6 +118,7 @@ to setup
   set destroyers-hit 0
   set amphibs-hit 0
   set naval-trial-done? false
+  set ground-trial-started? false
   set air-battle-end-string ""
   set ground-battle-start-string ""
   
@@ -184,7 +186,9 @@ to go
     error (word "carrier hit: " current-date-string) ; throws an error to stop execution and ensure the error message is logged in the CSV whereas nothing else is
     stop 
   ]
-  if naval-trial-done? [ stop ]
+  if naval-trial-done? and ground-trial-started? [ 
+    stop
+  ]
   advance-time minutes-per-tick
   update-date-string
   check-events
@@ -207,6 +211,7 @@ end
 to maybe-mark-ground-battle-start
   if ground-battle-start-string = "" and initial-amphib-count > 0 [
     if amphibs-landed = initial-amphib-count - amphibs-hit [
+      set ground-trial-started? true
       set ground-battle-start-string current-date-string
       show (word "ground battle start: " ground-battle-start-string)
       show (word "amphibs-landed: " amphibs-landed ", amphibs-hit: " amphibs-hit)
@@ -220,10 +225,9 @@ to maybe-end-air-battle
       set air-battle-end-string current-date-string
     ]
     set naval-trial-done? true
-    show (word "ended air battle: " air-battle-end-string)
-    show (word "faa-losses: " faa-losses ", threshold: " faa-loss-threshold)
-    show (word "Boats: " get-ship-coords)
-    stop
+    ;show (word "ended air battle: " air-battle-end-string)
+    ;show (word "faa-losses: " faa-losses ", threshold: " faa-loss-threshold)
+    ;show (word "Boats: " get-ship-coords)
   ]
 end
 
