@@ -174,7 +174,7 @@ end
 
 to-report end-condition
   let faa-low? (faa-losses >= faa-loss-threshold)
-  let amphibs-complete? (amphibs-landed + amphibs-hit >= 25)
+  let amphibs-complete? (amphibs-landed + amphibs-hit >= 10)
   let carrier-hit? (count carriers = 1)
 
   report (carrier-hit? or (faa-low? and amphibs-complete?))

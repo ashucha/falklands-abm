@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 
 @dataclass
@@ -25,6 +24,8 @@ class GroundInputs:
     air_battle_end: str
     amphibs_landed: int
     ship_coords: str
+    destroyers_remaining: int
+    frigates_remaining: int
 
 
 @dataclass
@@ -108,13 +109,13 @@ class NetLogoRunner:
             nl.command(f'clear-all')
             nl.command(f"set trial-id {trial_id}")
             nl.command(f"set trial-seed-ground {trial_seed_ground}")
-            #nl.command(f'set ground-battle-start-string "{ground_inputs.ground_battle_start}"')
-            #nl.command(f'set air-battle-end-input "{ground_inputs.air_battle_end}"')
             nl.command(f'set ground-battle "{ground_inputs.ground_battle_start}"')
             print(f'set ground-battle "{ground_inputs.ground_battle_start}"')
             nl.command(f'set air-battle-end "{ground_inputs.air_battle_end}"')
             nl.command(f'set amphibs-landed {ground_inputs.amphibs_landed}')
             # TODO: do something with ships_coords, connect the tuples to whatever bombarding code they have
+            nl.command(f'set destroyers-remaining-input {ground_inputs.destroyers_remaining}')
+            nl.command(f'set frigates-remaining-input {ground_inputs.frigates_remaining}')
             nl.command("setup")
             nl.command("while [not ground-trial-done?] [ go ]")
 
