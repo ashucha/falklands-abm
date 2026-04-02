@@ -10,20 +10,7 @@ to setup-amphib-flotilla
   
   create-flotillas 1 [
     set flotilla-type "amphib"
-    set waypoints (list
-      (list 47 20) ;; commented out for testing
-      (list 5  29)
-      (list -2 11) 
-      (list -2 9)
-;       (list  3 7)
-    ) 
-    
-    ;; optional coloring to see the waypoints
-    if show-waypoints? [
-      foreach waypoints [ w ->
-        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
-      ]
-    ]
+
      
     set w-i 0
     set amphib-radius 2
@@ -33,7 +20,34 @@ to setup-amphib-flotilla
       let cy mean [ycor] of carriers
       setxy cx cy
     ]
-;     setxy 74 13
+    
+    ifelse ycor < 0 [
+      ;; SOUTH ROUTE
+      set waypoints (list
+        (list 47 -34)
+        (list -2 -40)
+        (list -27 -30)
+        (list -20 -14)
+        ;;(list -8 -4)
+        ;;(list 5  -29)
+      )
+    ] [
+      ;; NORTH ROUTE
+      set waypoints (list
+        (list 47 20)
+        (list 5  29)
+        (list -2 11) 
+        (list -2 9)
+      )
+    ]
+    
+    ;; optional coloring to see the waypoints ;; MOVE THIS!!!
+    if show-waypoints? [
+      foreach waypoints [ w ->
+        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+      ]
+    ]
+    
     set color violet
     set size 0
     set speed (10 / 60) * minutes-per-tick / km-per-patch ;; a little less than 15 knots
