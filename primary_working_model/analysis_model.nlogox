@@ -139,6 +139,7 @@ british-troops-own [
 
   ;; Pathfinding
   ticks-stuck
+  recent-patches  ;; list of patches visited in last 3 ticks (breadcrumb)
 ]
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -553,7 +554,7 @@ to move-to-ridge
 
     if [elevation-level] of best-patch > [elevation-level] of patch-here [
       face best-patch
-      if not [water?] of patch-ahead 1 [
+      if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
         fd 1
       ]
     ]
@@ -614,7 +615,7 @@ end
 to move-to-bunker
   if bunker-target != nobody [
     face bunker-target
-    if not [water?] of patch-ahead 1 [
+    if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
       fd 1
     ]
   ]
@@ -685,7 +686,7 @@ to retreat
   set bunker-target nobody
   set engagement-target nobody
   rt random 360
-  if not [water?] of patch-ahead 1 [
+  if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
     fd 1
   ]
 end
@@ -701,7 +702,7 @@ to panic-retreat-to-cover
     let nearby-trench one-of patches in-radius 3 with [trench? and not water?]
     if nearby-trench != nobody [
       face nearby-trench
-      if not [water?] of patch-ahead 1 [
+      if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
         fd 1
         set moved-to-trench? true
       ]
@@ -803,6 +804,7 @@ to spawn-british-troops
         set status              "advancing"
         set retreat-threshold   20
         set ticks-stuck         0
+        set recent-patches      []
         set label               strength
       ]
     ]
@@ -916,6 +918,61 @@ to detect-argentine-troops
 end
 
 ;; ─────────────────────────────────────────────────────────────
+;; Helper: Calculate angle in degrees between two headings (0-360)
+;; Returns distance in degrees (0-180, symmetric)
+;; ─────────────────────────────────────────────────────────────
+to-report heading-difference [heading1 heading2]
+  let diff abs (heading1 - heading2)
+  if diff > 180 [ set diff 360 - diff ]
+  report diff
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Helper: Select best neighbor weighted by direction to target
+;; If stuck and target exists, bias toward neighbors that point toward target direction
+;; Otherwise pick randomly from safe neighbors (breaks deadlocks)
+;; ─────────────────────────────────────────────────────────────
+to-report select-weighted-neighbor [safe-neighbors target stuck-ticks]
+  if not any? safe-neighbors [ report nobody ]
+  
+  ;; If very stuck (3+ ticks), use random escape 15% of time
+  if stuck-ticks >= 3 and random-float 1 < 0.15 [
+    report one-of safe-neighbors
+  ]
+  
+  ;; If target exists, weight neighbors by directional alignment
+  ifelse target != nobody [
+    let target-heading towards target
+    let best-neighbor nobody
+    let best-alignment 999  ;; lower is better (smaller angle difference)
+    
+    ask safe-neighbors [
+      let neighbor-heading towards target  ;; heading FROM this neighbor TO target
+      let alignment heading-difference neighbor-heading target-heading
+      if alignment < best-alignment [
+        set best-alignment alignment
+        set best-neighbor self
+      ]
+    ]
+    
+    ifelse best-neighbor != nobody [ report best-neighbor ] [ report one-of safe-neighbors ]
+  ] [
+    ;; No target — just pick randomly
+    report one-of safe-neighbors
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Helper: Update breadcrumb trail (keep last 3 patches visited)
+;; ─────────────────────────────────────────────────────────────
+to update-recent-patches
+  set recent-patches lput patch-here recent-patches
+  if length recent-patches > 3 [
+    set recent-patches but-first recent-patches
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
 ;; Move toward engagement-target while avoiding water
 ;; ─────────────────────────────────────────────────────────────
 to advance-british-troops
@@ -930,25 +987,31 @@ to advance-british-troops
   let safe-neighbors neighbors with [not water?]
   if not any? safe-neighbors [ stop ]  ;; fully enclosed — hold position
 
+  ;; Track where we've been (breadcrumb)
+  update-recent-patches
+
   let et engagement-target
   ifelse et != nobody [
-    ;; Only step toward the target if that neighbor actually reduces distance.
-    ;; If no safe neighbor brings us closer (e.g. target is across a water body
-    ;; that the midpoint filter missed), fall back to pressing east and increment
-    ;; the stuck counter so the escape logic in move-british-troops can fire.
+    ;; Target exists — try to close distance
     let best min-one-of safe-neighbors [distance et]
     ifelse [distance et] of best < distance et [
+      ;; Progress toward target — move and reset stuck counter
       move-to best
-      set ticks-stuck 0   ;; made progress — reset the stuck counter
+      set ticks-stuck 0
     ] [
-      ;; No safe neighbor reduces distance — target likely across water.
-      ;; Press east and let ticks-stuck accumulate toward the 5-tick escape.
-      move-to max-one-of safe-neighbors [pxcor]
-      set ticks-stuck ticks-stuck + 1
+      ;; No neighbor reduces distance — target likely across water or in local dead zone
+      ;; Use weighted directional selection to intelligently escape the bottleneck
+      let next-patch select-weighted-neighbor safe-neighbors et ticks-stuck
+      if next-patch != nobody [
+        move-to next-patch
+        set ticks-stuck ticks-stuck + 1
+      ]
     ]
   ] [
-    ;; No target in range — keep pressing east toward Stanley
-    move-to max-one-of safe-neighbors [pxcor]
+    ;; No target in range — use weighted selection to break eastward bias
+    ;; This gives Brits more varied movement while still drifting generally east
+    let next-patch select-weighted-neighbor safe-neighbors nobody ticks-stuck
+    if next-patch != nobody [ move-to next-patch ]
   ]
 end
 
