@@ -184,6 +184,7 @@ to go
     error (word "carrier hit: " current-date-string) ; throws an error to stop execution and ensure the error message is logged in the CSV whereas nothing else is
     stop 
   ]
+  if naval-trial-done? [ stop ]
   advance-time minutes-per-tick
   update-date-string
   check-events
@@ -221,6 +222,7 @@ to maybe-end-air-battle
     set naval-trial-done? true
     show (word "ended air battle: " air-battle-end-string)
     show (word "faa-losses: " faa-losses ", threshold: " faa-loss-threshold)
+    show (word "Boats: " get-ship-coords)
     stop
   ]
 end
@@ -229,6 +231,13 @@ end
 to-report RNG [ p ]
   let probability p
   ifelse random-float 1.0 < probability [ report true ][ report false ]
+end
+
+to-report get-ship-coords
+  let destroyer-coords [ (list xcor ycor) ] of destroyers
+  let frigate-coords [ (list xcor ycor) ] of frigates
+  let ship-coords sentence destroyer-coords frigate-coords
+  report ship-coords
 end
 
 

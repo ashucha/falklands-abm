@@ -83,8 +83,7 @@ def map_naval_to_ground_inputs(naval) -> GroundInputs:
     return GroundInputs(
         ground_battle_start=naval.ground_battle_start,
         air_battle_end=naval.air_battle_end,
-        destroyers_remaining=naval.destroyers_remaining,
-        frigates_remaining=naval.frigates_remaining,
+        ship_coords=naval.ship_coords
     )
 
 

@@ -13,6 +13,7 @@ class NavalOutputs:
     carriers_remaining: int
     destroyers_remaining: int
     frigates_remaining: int
+    ship_coords: str
     amphibs_landed: int
     faa_jets_remaining: int
     shars_remaining: int
@@ -22,8 +23,7 @@ class NavalOutputs:
 class GroundInputs:
     ground_battle_start: str
     air_battle_end: str
-    destroyers_remaining: int
-    frigates_remaining: int
+    ship_coords: str
 
 
 @dataclass
@@ -85,6 +85,7 @@ class NetLogoRunner:
                 carriers_remaining=int(nl.report("count carriers")),
                 destroyers_remaining=int(nl.report("count destroyers")),
                 frigates_remaining=int(nl.report("count frigates")),
+                ship_coords=str(nl.report("get-ship-coords")),
                 amphibs_landed=int(nl.report("amphibs-landed")),
                 faa_jets_remaining=int(nl.report("faa-jets - faa-losses")),
                 shars_remaining=int(nl.report("count shars")),
@@ -105,8 +106,7 @@ class NetLogoRunner:
             nl.command(f"set trial-seed-ground {trial_seed_ground}")
             nl.command(f'set ground-battle-start-input "{ground_inputs.ground_battle_start}"')
             nl.command(f'set air-battle-end-input "{ground_inputs.air_battle_end}"')
-            nl.command(f"set destroyers-remaining-input {ground_inputs.destroyers_remaining}")
-            nl.command(f"set frigates-remaining-input {ground_inputs.frigates_remaining}")
+            # TODO: do something with ships_coords, connect the tuples to whatever bombarding code they have
             nl.command("setup")
             nl.command("while [not ground-trial-done?] [ go ]")
 
