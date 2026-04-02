@@ -19,12 +19,21 @@ globals [
   ;; DateTime Tracking (from utils/datetime.nls)
   cur-min cur-hour cur-day cur-month cur-year
   current-date-string
-  conflict-days
-  ground-battle-start-input   ;; input: start date as string (from harness)
-  ground-battle-start-string  ;; output: start date as string (for CSV)
-  ground-battle-end-string    ;; output: end date as string
-  air-battle-end-input        ;; input: when air battle ended (constrains unit spawning)
-
+  
+  ;; Harness Inputs (DataClass GroundInputs)
+  ground-battle               ;; str: start date (e.g., "May 21 1982 - 00:00")
+  air-battle-end              ;; str: when air battle ended (constrains unit spawning)
+  ship-coords                 ;; str: JSON-like string of ship coordinates
+  
+  ;; Harness Outputs (DataClass GroundOutputs)
+  ground-battle-end           ;; str: end date string
+  conflict-days               ;; float: duration in days
+  british-kia                 ;; int: total British killed
+  argentine-kia               ;; int: total Argentine killed
+  
+  ;; Internal Metadata & Tracking
+  ground-battle-start-string  ;; intermediate storage for parsed start
+  
   ;; Naval Gunfire Support (based on remaining ships from air battle)
   ngfs-enabled?
   ngfs-base-fire-interval     ;; base interval when all ships present
@@ -34,8 +43,8 @@ globals [
   ngfs-last-fire-tick
   
   ;; Ship Availability (input from air battle outcomes)
-  destroyers-remaining-input  ;; count of destroyers available for NGFS
-  frigates-remaining-input    ;; count of frigates available for NGFS
+  destroyers-remaining-input  ;; deprecated, kept for safety
+  frigates-remaining-input    ;; deprecated, kept for safety
   ships-alive                 ;; list of ship IDs still active
   ships-data                  ;; ship metadata: [id x y destruction-datetime-string]
   
@@ -188,19 +197,20 @@ to parse-ground-battle-start-date
   ;; Expect format: "May 21 1982 - 00:00"
   ;; Extract month, day, year, hour, minute
   let use-fallback? false
-  if not is-string? ground-battle-start-input or ground-battle-start-input = "" [
+  
+  if not is-string? ground-battle or ground-battle = "" [
     set use-fallback? true
   ]
   
   ifelse not use-fallback? [
-    let date-parts parse-date-string ground-battle-start-input
+    let date-parts parse-date-string ground-battle
     ifelse date-parts != false [
       set cur-month item 0 date-parts
       set cur-day item 1 date-parts
       set cur-year item 2 date-parts
       set cur-hour item 3 date-parts
       set cur-min item 4 date-parts
-      set ground-battle-start-string ground-battle-start-input
+      set ground-battle-start-string ground-battle
     ] [
       set use-fallback? true
     ]
@@ -216,7 +226,7 @@ to parse-ground-battle-start-date
     set cur-hour 0
     set cur-min 0
     set ground-battle-start-string "May 21 1982 - 00:00"
-    show "[SETUP] WARNING: ground-battle-start-input not set or invalid, using May 21 1982 00:00"
+    show "[SETUP] WARNING: ground-battle not set or invalid, using May 21 1982 00:00"
   ]
 end
 
@@ -645,24 +655,22 @@ end
 
 to output-final-results
   ;; Write final battle results to CSV
-  ;; Format: trial_id, ground_battle_start, ground_battle_end, duration_days, 
-  ;;         british_killed, argentine_killed, argentine_surrendered, outcome
+  ;; Following GroundOutputs dataclass: ground_battle_end, conflict_days, british_kia, argentine_kia
   
-  set ground-battle-end-string current-date-string
+  ;; Set the specific harness output variables
+  set ground-battle-end current-date-string
+  set conflict-days (ticks * 0.25)
   
-  ;; Calculate days from May 21, 1982 00:00
-  ;; May 21 is day 141 of the year
-  ;; For simplicity, count conflict-days directly
+  set british-kia (british-battalions-spawned - count british-troops)
+  set argentine-kia ngfs-total-kills
+  
+  ;; Sync with result-line for CSV
+  let british-killed british-kia
+  let argentine-killed argentine-kia
   let duration-days conflict-days
   
   ;; Outcome: 1 if British win (all Argentine dead), 0 otherwise
   let outcome ifelse-value (not any? argentine-troops) [ 1 ] [ 0 ]
-  
-  ;; British killed: actual spawned count minus survivors
-  let british-killed (british-battalions-spawned - count british-troops)
-  
-  ;; Argentine killed: already tracked
-  let argentine-killed ngfs-total-kills
   
   ;; Argentine surrendered: already tracked
   let argentine-surrendered surrenders-total
@@ -674,7 +682,7 @@ to output-final-results
   let result-line (word
     trial-id ","
     ground-battle-start-string ","
-    ground-battle-end-string ","
+    ground-battle-end ","
     duration-days ","
     british-killed ","
     argentine-killed ","
@@ -720,8 +728,8 @@ to output-final-results
   
   show (word "[BATTLE COMPLETE] Trial " trial-id 
     " | Duration: " duration-days " days"
-    " | British killed: " british-killed
-    " | Argentine killed: " argentine-killed
+    " | British kills: " british-killed
+    " | Argentine kills: " argentine-killed
     " | Argentine surrendered: " argentine-surrendered
     " | Outcome: " outcome)
 end
