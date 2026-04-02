@@ -86,7 +86,7 @@ class NetLogoRunner:
                 destroyers_remaining=int(nl.report("count destroyers")),
                 frigates_remaining=int(nl.report("count frigates")),
                 amphibs_landed=int(nl.report("amphibs-landed")),
-                faa_jets_remaining=int(nl.report("faa-jets")),
+                faa_jets_remaining=int(nl.report("faa-jets - faa-losses")),
                 shars_remaining=int(nl.report("count shars")),
             )
         finally:
