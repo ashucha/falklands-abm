@@ -101,7 +101,7 @@ to move-british-troops
     ;; [DEBUG H-B] track max stuck value ever seen across all troops
     if ticks-stuck > debug-max-stuck [ set debug-max-stuck ticks-stuck ]
 
-    if ticks-stuck >= 5 [
+    if ticks-stuck >= 20 [ ;; increased from 5 to account for slower resolution
       ;; [DEBUG H-C] count how many times escape fires
       set debug-escape-count debug-escape-count + 1
       set ticks-stuck 0
@@ -245,15 +245,17 @@ to advance-british-troops
     ;; Target exists — try to close distance
     let best min-one-of safe-neighbors [distance et]
     ifelse [distance et] of best < distance et [
-      ;; Progress toward target — move and reset stuck counter
-      move-to best
-      set ticks-stuck 0
+      ;; Progress toward target — move (scaled down) and reset stuck counter
+      face best
+      fd 0.25 ;; Scaled from 1.0/move-to
+      if distance best < 0.1 [ set ticks-stuck 0 ] ;; reset when reached or near
     ] [
       ;; No neighbor reduces distance — target likely across water or in local dead zone
       ;; Use weighted directional selection to intelligently escape the bottleneck
       let next-patch select-weighted-neighbor safe-neighbors et ticks-stuck
       if next-patch != nobody [
-        move-to next-patch
+        face next-patch
+        fd 0.25 ;; Scaled from 1.0/move-to
         set ticks-stuck ticks-stuck + 1
       ]
     ]
@@ -261,7 +263,10 @@ to advance-british-troops
     ;; No target in range — use weighted selection to break eastward bias
     ;; This gives Brits more varied movement while still drifting generally east
     let next-patch select-weighted-neighbor safe-neighbors nobody ticks-stuck
-    if next-patch != nobody [ move-to next-patch ]
+    if next-patch != nobody [ 
+      face next-patch
+      fd 0.25 ;; Scaled from 1.0/move-to
+    ]
   ]
 end
 
@@ -272,7 +277,7 @@ to engage-argentine-troops
   if engagement-target = nobody [ stop ]
 
   let dist distance engagement-target
-  let hit-prob 0.4 + (0.4 / max list dist 0.1)
+  let hit-prob (0.4 + (0.4 / max list dist 0.1)) * 0.25 ;; Scaled for 4x slower resolution
 
   if random-float 1 < hit-prob [
     ask engagement-target [

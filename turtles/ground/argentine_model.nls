@@ -1,66 +1,86 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ARGENTINE TROOPS
+;; Defensive infantry units responding to British advances.
+;; Behaviors: seek cover/bunkers, suppress enemy fire,
+;;            execute panic retreats, engage targets
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; ─────────────────────────────────────────────────────────────
+;; Initialize four Argentine battalions at random land positions
+;; ─────────────────────────────────────────────────────────────
 to spawn-argentine-battalions
-
   create-argentine-troops 4 [
-
     set color cyan
     set size 2
 
+    ;; Combat statistics
     set strength 100
     set morale 100
+
+    ;; Cover and bunker state
     set entrenched? false
-    set engagement-target nobody
     set in-bunker? false
-    set suppressed-ticks 0
     set bunker-target nobody
+
+    ;; Combat engagement
+    set engagement-target nobody
+    set suppressed-ticks 0
+
+    ;; Behavioral flags
     set panic-move? false
 
+    ;; Spawn at random non-water location
     move-to one-of patches with [not water?]
-
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Phase driver — called once per tick from go
+;; Coordinates preconditions, survival check, and all behavior phases
+;; ─────────────────────────────────────────────────────────────
 to run-argentine-troops
-
   ask argentine-troops [
+    ;; Update state based on environment and previous tick
     argentine-update-preconditions
 
+    ;; Check surrender condition; if unit dies, remove it
     ifelse argentine-survives-tick? [
+      ;; Unit survived — execute full behavior sequence
       argentine-resolve-cover
       argentine-resolve-withdrawal
       argentine-resolve-combat
       update-visual-state
     ] [
+      ;; Unit surrendered — remove from simulation
       die
     ]
-
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Update preconditions and state tracking from previous tick
+;; Manages suppression decay, bunker validity, target cleanup
+;; ─────────────────────────────────────────────────────────────
 to argentine-update-preconditions
-  ;; keep suppression bounded and deterministic per tick
+  ;; Suppression decay — reduce suppressed ticks each tick
+  ;; Clamp to [0, ∞) and respect global suppression-enabled? flag
   if suppressed-ticks < 0 [
     set suppressed-ticks 0
   ]
   if suppression-enabled? and suppressed-ticks > 0 [
-    set suppressed-ticks suppressed-ticks - 1
+    set suppressed-ticks suppressed-ticks - 0.25 ;; Reduced from 1
   ]
   if not suppression-enabled? [
     set suppressed-ticks 0
   ]
 
-  ;; if bunker is destroyed under them, clear protection state
+  ;; Bunker destruction check — if bunker collapses, clear protection state
   if in-bunker? and (not [bunker?] of patch-here or [bunker-strength] of patch-here <= 0) [
     set in-bunker? false
     set entrenched? false
   ]
 
-  ;; bunker target must remain valid
+  ;; Invalid bunker target cleanup — reset if target destroyed or out of capacity
   if bunker-target != nobody [
     if not [bunker?] of bunker-target or [bunker-strength] of bunker-target <= 0 [
       set bunker-target nobody
@@ -68,8 +88,13 @@ to argentine-update-preconditions
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Survival reporter — determines if unit continues to next phase
+;; Returns false (causing die) if unit should surrender
+;; ─────────────────────────────────────────────────────────────
 to-report argentine-survives-tick?
-  ;; Every branch must report; die is handled by the caller (run-argentine-troops)
+  ;; Survival is purely based on surrender probability
+  ;; Caller (run-argentine-troops) owns the die action
   if should-surrender? [
     set surrenders-total surrenders-total + 1
     report false
@@ -77,69 +102,104 @@ to-report argentine-survives-tick?
   report true
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Cover seeking — occupy bunkers or move to ridge positions
+;; Evaluates panic condition once per tick before movement
+;; ─────────────────────────────────────────────────────────────
 to argentine-resolve-cover
-  ;; immediate occupancy if already on a bunker
+  ;; Immediate bunker check — occupy if already on one
   occupy-bunker-if-possible
 
-  ;; panic should be evaluated once per tick, before movement decisions
+  ;; Panic evaluation — called once per tick before any movement
+  ;; Sets panic-move? flag if morale/strength/suppression thresholds breached
   evaluate-panic
 
   ifelse in-bunker? [
+    ;; If in bunker, mark entrenched and cancel active bunker search
     set entrenched? true
     set bunker-target nobody
   ] [
-    ;; if pinned and not in bunker, hold position this phase
+    ;; If suppressed, hold position (do not move this phase)
     let pinned? (suppressed-ticks > 0)
     if not pinned? [
+      ;; Seek nearest valid bunker and advance toward it
       choose-bunker-target
       move-to-bunker
       occupy-bunker-if-possible
     ]
 
+    ;; Post-bunker occupancy check
     if in-bunker? [
       set entrenched? true
       set bunker-target nobody
     ]
 
+    ;; If not in bunker and not suppressed, move to high ground
     if not in-bunker? and not pinned? and not entrenched? [
       move-to-ridge
     ]
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Withdrawal — retreat if strength is low and not entrenched
+;; Panic retreats take priority over normal strength-based retreat
+;; ─────────────────────────────────────────────────────────────
 to argentine-resolve-withdrawal
   ifelse in-bunker? [
+    ;; Units in bunker are not considered in panic state
     set panic-move? false
   ] [
+    ;; Execute panic retreat if flag was set in evaluate-panic
     if panic-move? [
       panic-retreat-to-cover
     ]
+
+    ;; If not panicking but strength is critically low, retreat
     if (not panic-move?) and strength < 30 [
       retreat
     ]
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Combat engagement — detect enemies and fire if in range
+;; ─────────────────────────────────────────────────────────────
 to argentine-resolve-combat
+  ;; Scan for British units within detection range
   detect-british
+
+  ;; If locked on to target, attempt to fire
   if engagement-target != nobody [
     fire-at-target
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Panic state evaluation — determines if unit should flee to cover
+;; Triggers: low morale, low strength, or suppression + stress combo
+;; ─────────────────────────────────────────────────────────────
 to evaluate-panic
   set panic-move? false
+  
+  ;; Units already in bunker do not panic
   if in-bunker? [ stop ]
+
+  ;; Morale threshold — unrelenting despair
   if morale < 25 [
     set panic-move? true
     set panic-events-total panic-events-total + 1
     stop
   ]
+
+  ;; Strength threshold — unit too weakened to resist
   if strength < 20 [
     set panic-move? true
     set panic-events-total panic-events-total + 1
     stop
   ]
+
+  ;; Suppression + stress combo — low morale + suppressed, or low strength + suppressed
   if suppressed-ticks > 0 and (morale < 40 or strength < 35) [
     if random-float 1 < 0.35 [
       set panic-move? true
@@ -148,12 +208,18 @@ to evaluate-panic
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Update visual representation (label and color) based on state
+;; Shows entrenched status (B=bunker, T=trench, E=exposed)
+;; Suppression indicated by yellow highlight
+;; ─────────────────────────────────────────────────────────────
 to update-visual-state
-
   set color cyan
 
+  ;; Default display character — exposed infantry
   let display-char "E"
 
+  ;; Override for fortified positions
   if in-bunker? [
     set display-char "B"
   ]
@@ -162,58 +228,67 @@ to update-visual-state
     set display-char "T"
   ]
 
+  ;; Suppression visual — yellow highlight with asterisk
   if suppressed-ticks > 0 [
     set label word display-char "*"
     set label-color yellow
   ]
 
+  ;; Normal state — white label
   if suppressed-ticks = 0 [
     set label display-char
     set label-color white
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Movement toward high ground — find elevation advantage
+;; If already at local maximum, entrench and create trench
+;; ─────────────────────────────────────────────────────────────
 to move-to-ridge
-
+  ;; Find highest patch within 2-patch radius
   let best-patch max-one-of patches in-radius 2 [elevation-level]
 
   if best-patch != nobody [
-
+    ;; If best patch is higher, move toward it
     if [elevation-level] of best-patch > [elevation-level] of patch-here [
       face best-patch
-      if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
-        fd 1
+      if patch-ahead 1 != nobody and not [water?] of patch-ahead 0.25 [
+        fd 0.25 ;; Scaled from fd 1
       ]
     ]
 
+    ;; If at local maximum, entrench and establish a trench
     if [elevation-level] of best-patch <= [elevation-level] of patch-here [
       set entrenched? true
 
       ask patch-here [
         set trench? true
+        ;; Do not override existing bunker color
         if not bunker? [
           set pcolor brown
         ]
       ]
     ]
-
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Bunker targeting — select nearest valid bunker if stressed
+;; Maintains target if still valid and has capacity
+;; ─────────────────────────────────────────────────────────────
 to choose-bunker-target
-
   ifelse in-bunker? [
+    ;; Already protected — do not need a target
     set bunker-target nobody
   ] [
-    ;; only seek bunker when stressed
+    ;; Only seek bunker if units are stressed (low morale/strength)
     if morale > 60 and strength > 70 and suppressed-ticks = 0 [
       set bunker-target nobody
     ]
 
     if not (morale > 60 and strength > 70 and suppressed-ticks = 0) [
-      ;; keep current target if it is still legal and has room
+      ;; Keep current target if it is still legal and has capacity
       let keep-current? false
       if bunker-target != nobody [
         let target-has-bunker? [bunker?] of bunker-target
@@ -226,6 +301,7 @@ to choose-bunker-target
         ]
       ]
 
+      ;; If current target invalid, find nearest valid bunker within 5 patches
       if not keep-current? [
         set bunker-target min-one-of
           (patches in-radius 5 with [
@@ -237,94 +313,135 @@ to choose-bunker-target
       ]
     ]
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Movement toward bunker target — one patch at a time
+;; Stops if blocked by water
+;; ─────────────────────────────────────────────────────────────
 to move-to-bunker
   if bunker-target != nobody [
     face bunker-target
-    if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
-      fd 1
+    if patch-ahead 1 != nobody and not [water?] of patch-ahead 0.25 [
+      fd 0.25 ;; Scaled from fd 1
     ]
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Bunker occupation — enter bunker if available and valid
+;; Tracks entry event for analytics
+;; ─────────────────────────────────────────────────────────────
 to occupy-bunker-if-possible
-
   if [bunker?] of patch-here and [bunker-strength] of patch-here > 0 [
     let occupants count turtles-here with [breed = argentine-troops and in-bunker?]
 
+    ;; Check if space remains in bunker
     if occupants < [bunker-capacity] of patch-here [
+      ;; Track first entry to bunker for analytics
       if not in-bunker? [
         set bunker-entries-total bunker-entries-total + 1
       ]
+      
       set in-bunker? true
       set entrenched? true
       set bunker-target nobody
       set panic-move? false
     ]
   ]
-
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Detect nearest British unit within detection range
+;; Sets engagement-target or clears stale target
+;; ─────────────────────────────────────────────────────────────
 to detect-british
   if any? british-troops [
+    ;; Find nearest British unit
     let enemy min-one-of british-troops [distance myself]
     let detect-range current-detection-range
 
-    if distance enemy <= detect-range [ set engagement-target enemy ]
-    if distance enemy > detect-range [ set engagement-target nobody ]
+    ;; Lock on if within detection range
+    if distance enemy <= detect-range [
+      set engagement-target enemy
+    ]
+
+    ;; Out of range — lose lock
+    if distance enemy > detect-range [
+      set engagement-target nobody
+    ]
   ]
 
+  ;; No British units remain
   if not any? british-troops [
     set engagement-target nobody
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Fire at locked engagement target — damage and suppress
+;; Morale boost if target is likely killed
+;; ─────────────────────────────────────────────────────────────
 to fire-at-target
   if engagement-target = nobody [ stop ]
 
-  let hit-prob current-hit-prob
+  let hit-prob current-hit-prob * 0.25 ;; Scaled hit prob
   let target-agent engagement-target
 
-  ;; morale gain for killing enemy
+  ;; Predict if target will die from this shot (strength <= 2.5)
   let likely-kill? false
-  if [strength] of target-agent <= 10 [
+  if [strength] of target-agent <= 2.5 [
     set likely-kill? true
   ]
 
+  ;; Fire resolution
   if random-float 1 < hit-prob [
+    ;; Inflict damage
     ask target-agent [
-      set strength strength - 10
+      set strength strength - 2.5 ;; Reduced damage from 10
       if strength <= 0 [
         die
       ]
     ]
 
+    ;; Morale boost for confirmed kill (scaled)
     if likely-kill? [
-      set morale morale + 0.5
+      set morale morale + 0.125 ;; Reduced from 0.5
       if morale > 100 [ set morale 100 ]
     ]
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Normal retreat — clear cover state and flee in random direction
+;; Used when strength drops below 30 (non-panic retreat)
+;; ─────────────────────────────────────────────────────────────
 to retreat
   set entrenched? false
   set in-bunker? false
   set bunker-target nobody
   set engagement-target nobody
+  
+  ;; Flee in random direction
   rt random 360
-  if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
-    fd 1
+  if patch-ahead 1 != nobody and not [water?] of patch-ahead 0.25 [
+    fd 0.25 ;; Scaled from fd 1
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Panic retreat — high-priority movement to any available cover
+;; Tries: nearest bunker → nearby trench → random retreat
+;; ─────────────────────────────────────────────────────────────
 to panic-retreat-to-cover
+  ;; Attempt 1: Find and move to nearest bunker
   choose-bunker-target
   if bunker-target != nobody [
     move-to-bunker
     occupy-bunker-if-possible
   ]
+
+  ;; Attempt 2: If no bunker, seek nearby trench
   let moved-to-trench? false
   if bunker-target = nobody and not in-bunker? [
     let nearby-trench one-of patches in-radius 3 with [trench? and not water?]
@@ -336,43 +453,70 @@ to panic-retreat-to-cover
       ]
     ]
   ]
+
+  ;; Attempt 3: If all else fails, random retreat
   if bunker-target = nobody and not in-bunker? and not moved-to-trench? [
     retreat
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Apply suppression effect — increments suppressed-ticks
+;; Tracks first suppression event for analytics
+;; ─────────────────────────────────────────────────────────────
 to apply-suppression [ticks-to-add]
   if not suppression-enabled? [
     set suppressed-ticks 0
     stop
   ]
+  
   let old suppressed-ticks
   set suppressed-ticks max list suppressed-ticks ticks-to-add
+  
+  ;; Track first suppression event
   if old = 0 and suppressed-ticks > 0 [
     set suppression-events-total suppression-events-total + 1
   ]
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Surrender check — probabilistic based on morale and strength
+;; Lower morale/strength = higher surrender probability
+;; Bunker presence reduces surrender likelihood
+;; ─────────────────────────────────────────────────────────────
 to-report should-surrender?
-  ;; Pure reporter — no stop/die; caller owns the death
+  ;; Respect global surrender-enabled? flag
   if not surrender-enabled? [ report false ]
+  
+  ;; Surrender only if stressed (low morale or strength)
   if morale < 40 or strength < 30 [
     let surrender-prob 0
+    
+    ;; Cumulative probability from multiple stressors
     set surrender-prob surrender-prob + max list 0 ((40 - morale) / 200)
     set surrender-prob surrender-prob + max list 0 ((30 - strength) / 150)
+    
+    ;; Suppression increases surrender likelihood
     if suppressed-ticks > 0 [
       set surrender-prob surrender-prob + 0.05
     ]
+    
+    ;; Bunker provides psychological resilience
     if in-bunker? [
       set surrender-prob surrender-prob * 0.7
     ]
+    
+    ;; Cap probability at 60%
     if surrender-prob > 0.6 [
       set surrender-prob 0.6
     ]
+    
+    ;; Stochastic surrender roll
     if random-float 1 < surrender-prob [
       report true
     ]
   ]
+  
   report false
 end
 
@@ -380,13 +524,18 @@ end
 ;; REPORTERS FOR ARGENTINE COMBAT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; ─────────────────────────────────────────────────────────────
+;; Detection range — increased on high ground or in bunker
+;; ─────────────────────────────────────────────────────────────
 to-report current-detection-range
   let detect-range 4
 
+  ;; Ridge advantage — see further from high ground
   if [elevation-level] of patch-here = 2 [
     set detect-range 6
   ]
 
+  ;; Bunker advantage — improved observation position
   if in-bunker? [
     set detect-range detect-range + 1
   ]
@@ -394,26 +543,34 @@ to-report current-detection-range
   report detect-range
 end
 
+;; ─────────────────────────────────────────────────────────────
+;; Hit probability — influenced by preparation and suppression
+;; Bunker/entrenched units are more accurate; suppressed units less so
+;; ─────────────────────────────────────────────────────────────
 to-report current-hit-prob
   let hit-prob 0.25
 
+  ;; Entrenched bonus — stable firing position
   if entrenched? [
     set hit-prob 0.35
   ]
 
+  ;; Bunker bonus — protected firing position
   if in-bunker? [
     set hit-prob 0.40
   ]
 
-  ;; ridge advantage
+  ;; Ridge advantage — defensive position bonus
   if [elevation-level] of patch-here = 2 [
     set hit-prob hit-prob + 0.10
   ]
 
+  ;; Suppression penalty — significantly reduced accuracy
   if suppressed-ticks > 0 [
     set hit-prob hit-prob * 0.5
   ]
 
+  ;; Cap at 95%
   if hit-prob > 0.95 [
     set hit-prob 0.95
   ]

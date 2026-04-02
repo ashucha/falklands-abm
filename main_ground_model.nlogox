@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
   <code><![CDATA[__includes [
+  "utils/datetime.nls"
   "turtles/ground/argentine_model.nls"
   "turtles/ground/british_model.nls"
   "turtles/ground/ngfs_model.nls"
@@ -11,13 +12,31 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 globals [
-  ;; Configuration: NGFS
-  ngfs-range
-  ngfs-fire-interval
+  ;; Trial Metadata
+  trial-id
+  
+  ;; DateTime Tracking (from utils/datetime.nls)
+  cur-min cur-hour cur-day cur-month cur-year
+  current-date-string
+  conflict-days
+  ground-battle-start-string  ;; input: start date as string
+  ground-battle-end-string    ;; output: end date as string
+
+  ;; Naval Gunfire Support
+  ngfs-enabled?
+  ngfs-base-fire-interval     ;; base interval when all ships present
   ngfs-dispersion-radius
   ngfs-mode   
-  ngfs-enabled?
-
+  ngfs-ship-range             ;; range per ship (15 patches)
+  ngfs-last-fire-tick
+  
+  ;; Ship Data (input from CSV)
+  ships-data                  ;; list of [id x y destruction-datetime-string]
+  ships-alive                 ;; list of ship IDs still active
+  
+  ;; Battalion Landing (input from CSV)
+  battalions-landing          ;; list of booleans: which of 5 contingents can spawn
+  
   ;; Configuration: Damage & Effects
   trench-damage-mult
   bunker-damage-mult
@@ -29,23 +48,11 @@ globals [
   bunker-default-capacity
 
   ;; Configuration: Simulation Controls
-  auto-export?
-  export-every-ticks
   suppression-enabled?
   surrender-enabled?
   show-heatmap?
 
   ;; State: NGFS Runtime
-  ngfs-last-fire-tick
-  csv-initialized?
-  export-file
-
-  ;; State: Event Log
-  event-export-file
-  event-csv-initialized?
-  surrenders-last-logged
-
-  ;; Analytics: NGFS Strikes
   ngfs-strikes
   ngfs-total-damage
   ngfs-total-kills
@@ -68,28 +75,15 @@ globals [
   ;; Analytics: British Casualties
   british-casualties
 
-  ;; Experiment: Tracking
-  runs
-  british-wins
-
-  ;; Experiment: Raw Storage (NetLogo lists)
-  outcomes
-  durations
-
-  ;; Experiment: Statistics
-  p-hat
-  moe
-  mean-duration
-  std-duration
-
-  ;; Experiment: Control Parameters
-  target-moe
-  z-score
-  max-runs
-
-  ;; Debug: track max ticks-stuck ever seen (confirmed > 1 means escape CAN fire)
+  ;; Debug: track max ticks-stuck ever seen
   debug-max-stuck
   debug-escape-count
+  
+  ;; Output CSV
+  results-file
+  
+  ;; Troop Tracking
+  british-battalions-spawned  ;; count of British units that actually spawned
 ]
 
 patches-own [
@@ -154,77 +148,152 @@ british-troops-own [
 
 to setup
   clear-all
-  validate-widget-configuration
+  
+  ;; Seed RNG per trial (input: trial-id must be set before calling setup)
+  if not is-number? trial-id [ set trial-id 0 ]
+  random-seed trial-id
 
-  ;; Experiment-level state — survives across internal battles within one run
-  set runs 0
-  set british-wins 0
-  set outcomes []
-  set durations []
-  set p-hat 0
-  set moe 1
-  set mean-duration 0
-  set std-duration 0
-
-  ;; Control parameters — honour slider values if present, else use defaults
-  if not is-number? target-moe [ set target-moe 0.05 ]
-  if target-moe <= 0 [ set target-moe 0.05 ]
-  if not is-number? z-score [ set z-score 1.96 ]
-  if z-score <= 0 [ set z-score 1.96 ]
-  if not is-number? max-runs [ set max-runs 500 ]
-  if max-runs < 1 [ set max-runs 500 ]
-
-  initialize-global-state
+  ;; Parse ground battle start datetime (format: "May 21 1982 - 00:00")
+  parse-ground-battle-start-date
+  
+  ;; Initialize conflict tracking
+  set conflict-days 0
+  update-date-string
+  
+  ;; Validate and initialize ship data
+  initialize-ships
+  
+  ;; Validate and filter battalion landing availability
+  initialize-battalions
+  
+  ;; Initialize terrain and fortifications
   initialize-patch-state
+  
+  ;; Spawn troops based on available battalions and ships
   initialize-troop-state
+  
+  ;; Initialize analytics counters
+  initialize-global-state
+  
   reset-ticks
 end
 
-to validate-widget-configuration
-  ;; Chooser modes: fallback to safe defaults if widget is absent
-  if bunker-mode != "historical" and bunker-mode != "random" [
-    set bunker-mode "historical"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; INPUT PARSING & INITIALIZATION
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to parse-ground-battle-start-date
+  ;; Expect format: "May 21 1982 - 00:00"
+  ;; Extract month, day, year, hour, minute
+  if ground-battle-start-string = "" or ground-battle-start-string = nobody [
+    ;; Fallback: May 21, 1982 00:00
+    set cur-month 5
+    set cur-day 21
+    set cur-year 1982
+    set cur-hour 0
+    set cur-min 0
+    show "[SETUP] WARNING: ground-battle-start-string not set, using May 21 1982 00:00"
   ]
+  
+  let date-parts parse-date-string ground-battle-start-string
+  if date-parts != false [
+    set cur-month item 0 date-parts
+    set cur-day item 1 date-parts
+    set cur-year item 2 date-parts
+    set cur-hour item 3 date-parts
+    set cur-min item 4 date-parts
+  ]
+end
+
+to-report parse-date-string [date-str]
+  ;; Parse "May 21 1982 - 00:30"
+  ;; Returns [month day year hour minute] or false if parse fails
+  let month-map ["" "Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"]
+  
+  if date-str = "" [ report false ]
+  
+  ;; For now, simple assumption: format is correct
+  ;; In production, use more robust parsing with split-string
+  ;; For this implementation, assume caller provides correct format
+  ;; This is a stub that would need full string parsing; for now accept as-is
+  report false ;; TODO: implement full string parsing if needed
+end
+
+to initialize-ships
+  ;; ships-data is expected as list of [id x y destruction-datetime-string]
+  ;; e.g., [[1 10 5 "May 25 1982 - 14:30"] [2 12 6 ""] [3 9 8 ""]]
+  ;; Empty destruction time means ship never sinks
+  
+  ;; Dummy ships-data - comment out for production use
+  set ships-data [
+    [1 -16 6]
+    [2 -16 2]
+    [3 16 6]
+    [4 15 8]
+  ]
+
+  if not is-list? ships-data [
+    set ships-data [ ]
+    show "[SETUP] WARNING: ships-data not set, NGFS disabled"
+    set ngfs-enabled? false
+  ]
+  
+  ;; Initialize list of living ships (all ships start alive)
+  set ships-alive []
+  foreach ships-data [ ship ->
+    set ships-alive lput (item 0 ship) ships-alive
+  ]
+  
+  ;; Validate NGFS parameters
+  if not is-number? ngfs-base-fire-interval [ set ngfs-base-fire-interval 8 ]
+  if ngfs-base-fire-interval < 1 [ set ngfs-base-fire-interval 8 ]
+  
+  if not is-number? ngfs-ship-range [ set ngfs-ship-range 15 ]
+  if ngfs-ship-range < 1 [ set ngfs-ship-range 15 ]
+  
+  if not is-number? ngfs-dispersion-radius [ set ngfs-dispersion-radius 2 ]
+  if ngfs-dispersion-radius < 0 [ set ngfs-dispersion-radius 2 ]
+  
   if ngfs-mode != "realistic" and ngfs-mode != "all-map" [
     set ngfs-mode "realistic"
   ]
-
-  ;; Numeric sliders: ensure value exists and is in legal range
-  if not is-number? ngfs-range [ set ngfs-range 9 ]
-  if ngfs-range < 1 [ set ngfs-range 1 ]
-
-  if not is-number? ngfs-fire-interval [ set ngfs-fire-interval 8 ]
-  if ngfs-fire-interval < 1 [ set ngfs-fire-interval 1 ]
-
-  if not is-number? ngfs-dispersion-radius [ set ngfs-dispersion-radius 2 ]
-  if ngfs-dispersion-radius < 0 [ set ngfs-dispersion-radius 0 ]
-
-  if not is-number? bunker-default-capacity [ set bunker-default-capacity 1 ]
-  if bunker-default-capacity < 1 [ set bunker-default-capacity 1 ]
-
-  if not is-number? trench-damage-mult [ set trench-damage-mult 0.5 ]
-  if not is-number? bunker-damage-mult [ set bunker-damage-mult 0.2 ]
-  if not is-number? bunker-suppression-mult [ set bunker-suppression-mult 0.5 ]
-
-  if not is-number? ngfs-suppression-ticks [ set ngfs-suppression-ticks 2 ]
-  if ngfs-suppression-ticks < 0 [ set ngfs-suppression-ticks 0 ]
-
-  ;; Export sampling interval
-  if not is-number? export-every-ticks [ set export-every-ticks 10 ]
-  if export-every-ticks < 1 [ set export-every-ticks 1 ]
-
-  ;; Boolean switches: ensure value exists
+  
   if ngfs-enabled? != true and ngfs-enabled? != false [ set ngfs-enabled? true ]
-  if suppression-enabled? != true and suppression-enabled? != false [ set suppression-enabled? true ]
-  if surrender-enabled? != true and surrender-enabled? != false [ set surrender-enabled? true ]
-  if auto-export? != true and auto-export? != false [ set auto-export? true ]
-  if show-heatmap? != true and show-heatmap? != false [ set show-heatmap? true ]
+end
+
+to initialize-battalions
+  ;; battalions-landing is expected as list of 5 booleans
+  ;; true = can land, false = unable to land (destroyed in air battle)
+  ;; Positions: [SBS 3Para 40Commando 2Para 45Commando]
+  
+  if not is-list? battalions-landing [
+    set battalions-landing [true true true true true]
+    show "[SETUP] WARNING: battalions-landing not set, all 5 landing"
+  ]
+  
+  ;; Ensure list has exactly 5 elements
+  if length battalions-landing < 5 [
+    set battalions-landing sentence battalions-landing [true true true true true]
+  ]
+  if length battalions-landing > 5 [
+    set battalions-landing sublist battalions-landing 0 5
+  ]
 end
 
 to initialize-global-state
+  ;; Configuration: Damage & Effects (initialize if not set)
+  if not is-number? trench-damage-mult [ set trench-damage-mult 0.5 ]
+  if not is-number? bunker-damage-mult [ set bunker-damage-mult 0.3 ]
+  if not is-number? bunker-suppression-mult [ set bunker-suppression-mult 2.0 ]
+  if not is-number? ngfs-suppression-ticks [ set ngfs-suppression-ticks 5 ]
+  
+  ;; Configuration: Simulation Controls (initialize booleans)
+  if suppression-enabled? != true and suppression-enabled? != false [ set suppression-enabled? true ]
+  if surrender-enabled? != true and surrender-enabled? != false [ set surrender-enabled? true ]
+  if show-heatmap? != true and show-heatmap? != false [ set show-heatmap? false ]
+  
   ;; NGFS runtime state
   set ngfs-last-fire-tick 0
-  set csv-initialized? false
 
   ;; Analytics: NGFS
   set ngfs-strikes 0
@@ -249,37 +318,20 @@ to initialize-global-state
   ;; Analytics: British Casualties
   set british-casualties 0
 
-  ;; Close any file left open by a previous crashed run before attempting deletion
-  carefully [ file-close-all ] []
-
-  ;; Export file setup — pre-write header at setup time so the first line
-  ;; is always the header regardless of when run-export-phase first fires.
-  set export-file (word "ngfs_data_" bunker-mode "_" ngfs-mode ".csv")
-  if file-exists? export-file [
-    file-delete export-file
-  ]
-  write-snapshot-header
-
-  ;; Event log file setup
-  set event-export-file (word "ngfs_events_" bunker-mode "_" ngfs-mode ".csv")
-  if file-exists? event-export-file [
-    file-delete event-export-file
-  ]
-  set event-csv-initialized? false
-  write-event-header
-  set surrenders-last-logged 0
-
   ;; Debug trackers
   set debug-max-stuck 0
   set debug-escape-count 0
-
-  show (word "[EXPORT] Snapshot CSV : " export-file " (every " export-every-ticks " ticks, header written: " csv-initialized? ")")
-  show (word "[EXPORT] Event CSV    : " event-export-file " (header written: " event-csv-initialized? ")")
-  show (word "[EXPORT] auto-export? = " auto-export?)
+  
+  ;; Close any stray file handles
+  carefully [ file-close-all ] []
 end
 
 to initialize-patch-state
   import-pcolors "output/terrain_map.png"
+
+  ;; Initialize configuration defaults if not set
+  if bunker-mode != "historical" and bunker-mode != "random" [ set bunker-mode "historical" ]
+  if not is-number? bunker-default-capacity [ set bunker-default-capacity 1 ]
 
   ask patches [
     set base-pcolor pcolor
@@ -300,61 +352,86 @@ to initialize-patch-state
 end
 
 to initialize-troop-state
+  ;; Only spawn Argentine troops (no specific spawn logic yet)
   spawn-argentine-battalions
   ask argentine-troops [
     update-visual-state
   ]
-  spawn-british-troops
+  
+  ;; Spawn British troops, filtering by available battalions
+  spawn-british-troops-filtered
+  
+  ;; Track how many British troops actually spawned (for kill count calculation)
+  set british-battalions-spawned count british-troops
 end
 
-to setup-simulation
-  ;; Reset the world for one fresh internal battle run.
-  ;; Does NOT touch experiment-level lists (outcomes, durations)
-  ;; or counters (runs, british-wins, p-hat, moe, etc.).
-
-  ;; FIX 1: Fresh randomness for every run — ensures statistical independence
-  random-seed new-seed
-
-  clear-turtles
-
-  ;; Per-battle analytics reset
-  set ngfs-last-fire-tick 0
-  set ngfs-strikes 0
-  set ngfs-total-damage 0
-  set ngfs-total-kills 0
-  set ngfs-last-strike-x 0
-  set ngfs-last-strike-y 0
-  set ngfs-open-exposures 0
-  set ngfs-trench-exposures 0
-  set ngfs-bunker-exposures 0
-  set bunkers-destroyed 0
-  set bunker-entries-total 0
-  set surrenders-total 0
-  set arg-strength-loss-total 0
-  set panic-events-total 0
-  set suppression-events-total 0
-  set british-casualties 0
-  set surrenders-last-logged 0
-
-  ;; Debug: reset per-battle stuck trackers
-  set debug-max-stuck 0
-  set debug-escape-count 0
-
-  ;; FIX 3: Explicit patch reset before re-import — guards against state leakage
-  ;; initialize-patch-state also resets these, but this is a belt-and-suspenders
-  ;; safety layer in case future patch variables are added and missed there.
-  ask patches [
-    set bunker?          false
-    set trench?          false
-    set strike-count     0
-    set ngfs-flash-ticks 0
+to spawn-british-troops-filtered
+  ;; Five task forces land on the western coast (San Carlos area)
+  ;; Positions are scaled to the v2 world (-16 to 16)
+  ;; Filter by battalions-landing list: which contingents were able to land
+  
+  let initial-british-positions [
+    [-14  7]  ;; SBS (index 0)
+    [-12  6]  ;; 3 Para (index 1)
+    [-14  1]  ;; 40 Commando (index 2)
+    [-13 -1]  ;; 2 Para (index 3)
+    [-15  0]  ;; 45 Commando (index 4)
   ]
 
-  ;; Rebuild patches and troops for the new battle
-  initialize-patch-state
-  initialize-troop-state
-  reset-ticks
+  let idx 0
+  foreach initial-british-positions [ pos ->
+    ;; Check if this battalion was able to land
+    if idx < length battalions-landing and item idx battalions-landing [
+      let px item 0 pos
+      let py item 1 pos
+      
+      ;; If the target patch is water, find the nearest non-water alternative
+      let dest-patch patch px py
+      if [water?] of dest-patch [
+        set dest-patch min-one-of patches with [not water? and pxcor < -5] [
+          distancexy px py
+        ]
+      ]
+      
+      if dest-patch != nobody [
+        create-british-troops 1 [
+          move-to dest-patch
+          set color red
+          set size 2
+          set shape "default"
+
+          ;; Combat profile (SCALED FOR 84 TICKS)
+          set mobility            5
+          set lethality           7.5  ;; reduced from 30
+          set engagement-distance 7
+          set max-accuracy-distance 4
+          set invulnerability     0
+          set unit-type           "infantry"
+
+          ;; Behavioral state (turtles-own)
+          set strength            100
+          set morale              100
+          set entrenched?         false
+          set in-bunker?          false
+          set bunker-target       nobody
+          set engagement-target   nobody
+          set suppressed-ticks    0
+          set panic-move?         false
+
+          ;; Pathfinding
+          set ticks-stuck 0
+          set recent-patches []
+          set status              "advance"
+          set retreat-threshold   30
+        ]
+      ]
+    ]
+    
+    set idx idx + 1
+  ]
 end
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; TERRAIN
@@ -438,10 +515,10 @@ to refresh-patch-visuals
       ]
 
       if not bunker? and not trench? [
-        if show-heatmap? and strike-count > 0 and not water? [
+        if (is-boolean? show-heatmap? and show-heatmap?) and strike-count > 0 and not water? [
           set pcolor scale-color red strike-count 0 20
         ]
-        if not (show-heatmap? and strike-count > 0 and not water?) [
+        if not ((is-boolean? show-heatmap? and show-heatmap?) and strike-count > 0 and not water?) [
           set pcolor base-pcolor
         ]
         set plabel ""
@@ -466,289 +543,235 @@ to-report distance-to-coast [p]
 end
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; DATA EXPORT
+;; DATA EXPORT (CSV OUTPUT)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; ─────────────────────────────────────────────────────────────
-;; Header writers — called once during setup so the header is
-;; always the first line in each file, written before any tick
-;; fires and before run-export-phase can possibly be invoked.
-;; ─────────────────────────────────────────────────────────────
-
-to write-snapshot-header
-  ;; Snapshot CSV — 31 columns (must stay in sync with export-ngfs-data data row)
-  file-open export-file
-  file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
-  file-close
-  set csv-initialized? true
-end
-
-to write-event-header
-  ;; Event CSV — 14 columns (must stay in sync with log-event data row)
-  file-open event-export-file
-  file-print "tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg"
-  file-close
-  set event-csv-initialized? true
-end
-
-;; Shared event logger — observer context only.
-;; event-type : string label  (e.g. "strike-fired", "bunker-collapsed", "surrender-wave")
-;; event-x/y  : world coords of the event (0 0 for non-spatial events)
-;; event-value: numeric payload (kills this strike, surrenders this wave, etc.)
-to log-event [event-type event-x event-y event-value]
-  file-open event-export-file
-
-  if not event-csv-initialized? [
-    file-print "tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg"
-    set event-csv-initialized? true
-  ]
-
-  let avg-str 0
-  if any? argentine-troops [
-    set avg-str mean [strength] of argentine-troops
-  ]
-
-  file-print (word
-    ticks ","
-    event-type ","
-    event-x ","
-    event-y ","
-    event-value ","
-    bunker-mode ","
-    ngfs-mode ","
-    ngfs-range ","
-    ngfs-fire-interval ","
-    ngfs-strikes ","
-    ngfs-total-kills ","
-    count argentine-troops with [suppressed-ticks > 0] ","
-    count argentine-troops ","
-    avg-str
+to output-final-results
+  ;; Write final battle results to CSV
+  ;; Format: trial_id, ground_battle_start, ground_battle_end, duration_days, 
+  ;;         british_killed, argentine_killed, argentine_surrendered, outcome
+  
+  set ground-battle-end-string current-date-string
+  
+  ;; Calculate days from May 21, 1982 00:00
+  ;; May 21 is day 141 of the year
+  ;; For simplicity, count conflict-days directly
+  let duration-days conflict-days
+  
+  ;; Outcome: 1 if British win (all Argentine dead), 0 otherwise
+  let outcome ifelse-value (not any? argentine-troops) [ 1 ] [ 0 ]
+  
+  ;; British killed: actual spawned count minus survivors
+  let british-killed (british-battalions-spawned - count british-troops)
+  
+  ;; Argentine killed: already tracked
+  let argentine-killed ngfs-total-kills
+  
+  ;; Argentine surrendered: already tracked
+  let argentine-surrendered surrenders-total
+  
+  ;; Write to results CSV
+  set results-file "battle_results.csv"
+  
+  ;; Build result line
+  let result-line (word
+    trial-id ","
+    ground-battle-start-string ","
+    ground-battle-end-string ","
+    duration-days ","
+    british-killed ","
+    argentine-killed ","
+    argentine-surrendered ","
+    outcome
   )
-
+  
+  ;; Check if file exists
+  let file-exists-already file-exists? results-file
+  
+  ;; Read existing lines (if file already exists)
+  let existing-lines []
+  if file-exists-already [
+    file-open results-file
+    while [not file-at-end?] [
+      set existing-lines lput file-read-line existing-lines
+    ]
+    file-close
+  ]
+  
+  ;; Rewrite file (all existing lines + new result)
+  file-open results-file
+  
+  ;; Write header if this is first run
+  if not file-exists-already [
+    file-print "trial_id,ground_battle_start,ground_battle_end,duration_days,british_killed,argentine_killed,argentine_surrendered,outcome"
+  ]
+  
+  ;; Write all existing lines
+  foreach existing-lines [ line ->
+    file-print line
+  ]
+  
+  ;; Write new result
+  file-print result-line
   file-close
+  
+  show (word "[BATTLE COMPLETE] Trial " trial-id 
+    " | Duration: " duration-days " days"
+    " | British killed: " british-killed
+    " | Argentine killed: " argentine-killed
+    " | Argentine surrendered: " argentine-surrendered
+    " | Outcome: " outcome)
 end
 
-to export-ngfs-data
+;; ─────────────────────────────────────────────────────────────
+;; COMMENTED OUT: Old diagnostic CSV export code
+;; ─────────────────────────────────────────────────────────────
 
-  file-open export-file
+;; to write-snapshot-header
+;;   file-open export-file
+;;   file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
+;;   file-close
+;; end
 
-  if not csv-initialized? [
-    file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
-    set csv-initialized? true
-  ]
+;; to write-event-header
+;;   file-open event-export-file
+;;   file-print "tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg"
+;;   file-close
+;; end
 
-  let avg-strength 0
-  let avg-morale 0
-  let min-morale 0
-  let avg-detection-range 0
-  let avg-hit-prob 0
+;; to log-event [event-type event-x event-y event-value]
+;;   [COMMENTED OUT - no per-tick event logging needed]
+;; end
 
-  if any? argentine-troops [
-    set avg-strength mean [strength] of argentine-troops
-    set avg-morale mean [morale] of argentine-troops
-    set min-morale min [morale] of argentine-troops
-    set avg-detection-range mean [current-detection-range] of argentine-troops
-    set avg-hit-prob mean [current-hit-prob] of argentine-troops
-  ]
+;; to export-ngfs-data
+;;   [COMMENTED OUT - no per-tick snapshot export needed]
+;; end
 
-  file-print (word
-    ticks ","
-    bunker-mode ","
-    ngfs-mode ","
-    ngfs-range ","
-    ngfs-fire-interval ","
-    ngfs-strikes ","
-    ngfs-total-damage ","
-    ngfs-total-kills ","
-    surrenders-total ","
-    arg-strength-loss-total ","
-    count argentine-troops ","
-    avg-strength ","
-    avg-morale ","
-    min-morale ","
-    count argentine-troops with [[elevation-level] of patch-here = 2] ","
-    count patches with [bunker?] ","
-    bunkers-destroyed ","
-    count patches with [trench?] ","
-    count argentine-troops with [in-bunker?] ","
-    count argentine-troops with [[trench?] of patch-here and not in-bunker?] ","
-    count argentine-troops with [suppressed-ticks > 0] ","
-    bunker-entries-total ","
-    panic-events-total ","
-    suppression-events-total ","
-    ngfs-open-exposures ","
-    ngfs-trench-exposures ","
-    ngfs-bunker-exposures ","
-    avg-detection-range ","
-    avg-hit-prob ","
-    ngfs-last-strike-x ","
-    ngfs-last-strike-y
-  )
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SHIP MANAGEMENT & NGFS SUPPORT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-  file-close
-
+to update-ship-status
+  ;; Check if any ships were destroyed at current tick
+  ;; ships-data format: [id x y destruction-datetime-string]
+  ;; For now, use a simplified check: if destruction datetime matches current date/time, remove ship
+  
+  ;; TODO: Parse destruction datetime and compare with current date/time
+  ;; For this iteration, assume destruction times are provided and we need to check them
+  ;; This is a placeholder for full datetime comparison logic
 end
+
+to-report get-living-ship-count
+  ;; Return count of ships still alive
+  report length ships-alive
+end
+
+to-report get-dynamic-ngfs-interval
+  ;; Base interval: ngfs-base-fire-interval
+  ;; Penalty: +2 ticks per lost ship from original complement (max 13)
+  let living-count get-living-ship-count
+  let dead-count (13 - living-count)
+  
+  let penalty dead-count * 2
+  report ngfs-base-fire-interval + penalty
+end
+
+to-report get-random-living-ship
+  ;; Return a random ship ID from ships-alive list, or nobody if none left
+  if length ships-alive = 0 [ report nobody ]
+  report one-of ships-alive
+end
+
+to-report get-ship-position [ship-id]
+  ;; Find ship in ships-data by ID and return [x y]
+  ;; Format: [id x y destruction-datetime-string]
+  foreach ships-data [ ship ->
+    if item 0 ship = ship-id [
+      report (list (item 1 ship) (item 2 ship))
+    ]
+  ]
+  report false
+end  
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; MAIN LOOP
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; ─────────────────────────────────────────────────────────────
-;; Layer 3 — one tick of battle logic (was: go)
+;; One tick of battle logic
 ;; ─────────────────────────────────────────────────────────────
 to go-step
+  advance-time 60  ;; Advance 60 minutes (1 hour) per tick
+  update-date-string
+  update-ship-status
+  
   refresh-patch-visuals
   run-argentine-troops
   run-british-troops
   run-ngfs-phase
-  run-export-phase
   tick
-end
+end;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BATTLE SIMULATION CONTROL
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; ─────────────────────────────────────────────────────────────
 ;; Battle termination reporters
 ;; ─────────────────────────────────────────────────────────────
 to-report simulation-over?
-  ;; Battle ends when either side has no remaining agents.
-  ;; Note: surrendered Argentine troops call die immediately (see run-argentine-troops),
-  ;; so they are already absent from the world — no separate surrendered? check needed.
+  ;; Battle ends when either side has no remaining agents
   if not any? british-troops   [ report true ]
   if not any? argentine-troops [ report true ]
   report false
 end
 
 to-report british-win?
-  ;; Britain wins when no Argentine troops remain (dead or surrendered-and-died).
+  ;; Britain wins when no Argentine troops remain
   report not any? argentine-troops
 end
 
-to-report conflict-duration
-  report ticks
-end
-
 ;; ─────────────────────────────────────────────────────────────
-;; Layer 4 — run exactly one full battle to completion
+;; Run one complete battle from start to finish
 ;; ─────────────────────────────────────────────────────────────
-to go-until-end
-  setup-simulation
+to run-battle
+  ;; setup has already been called
+  ;; Just loop until battle is over
   while [not simulation-over?] [
     go-step
   ]
+  
+  ;; Battle complete — output results
+  output-final-results
 end
 
 ;; ─────────────────────────────────────────────────────────────
-;; Layer 5 helper — recalculate convergence statistics
-;; ─────────────────────────────────────────────────────────────
-to update-stats
-  if runs = 0 [ stop ]
-  set p-hat mean outcomes
-  set mean-duration mean durations
-
-  ;; MOE = z * sqrt(p*(1-p)/n)
-  ;; FIX 5: When p-hat = 0 or 1 the standard formula collapses to moe=0,
-  ;; which would falsely trigger convergence. Use conservative max-variance
-  ;; assumption (p=0.5 → variance=0.25) to keep moe positive until enough
-  ;; diverse outcomes accumulate.
-  ifelse (p-hat = 0 or p-hat = 1) [
-    set moe z-score * sqrt (0.25 / runs)
-  ] [
-    set moe z-score * sqrt ((p-hat * (1 - p-hat)) / runs)
-  ]
-
-  ;; Duration standard deviation (uses NetLogo built-in, sample n-1)
-  ifelse runs > 1 [
-    set std-duration standard-deviation durations
-  ] [
-    set std-duration 0
-  ]
-end
-
-;; ─────────────────────────────────────────────────────────────
-;; Layer 5 — adaptive Monte Carlo convergence controller
-;; ─────────────────────────────────────────────────────────────
-to run-until-converged
-  while [runs < max-runs] [
-
-    ;; FIX 7: Belt-and-suspenders safety stop inside the loop
-    if runs >= max-runs [
-      show (word "[MAX RUNS REACHED] " max-runs " runs — convergence not achieved."
-        " p-hat=" (precision p-hat 4) " moe=" (precision moe 4))
-      stop
-    ]
-
-    go-until-end
-
-    ;; FIX 6: Explicit recording order as required by spec
-    ;; 1. capture outcome
-    let win? british-win?
-
-    ;; 2. store outcome
-    ifelse win?
-      [ set outcomes lput 1 outcomes ]
-      [ set outcomes lput 0 outcomes ]
-
-    ;; 3. store duration
-    set durations lput conflict-duration durations
-
-    ;; 4. increment counters
-    set runs runs + 1
-    if win? [ set british-wins british-wins + 1 ]
-
-    ;; 5. update stats
-    update-stats
-
-    ;; Per-run debug output — includes stuck/escape counters to validate H-B fix
-    show (word "Run " runs
-      " | win?=" win?
-      " | p-hat=" (precision p-hat 4)
-      " | moe=" (precision moe 4)
-      " | duration=" conflict-duration
-      " | max-stuck=" debug-max-stuck
-      " | escapes=" debug-escape-count)
-
-    ;; 6. check stopping condition: min 30 runs + MOE below target
-    if runs >= 30 and moe < target-moe [
-      show (word "[CONVERGED] after " runs " runs."
-        " p-hat=" (precision p-hat 4)
-        " moe=" (precision moe 4))
-      stop
-    ]
-  ]
-
-  ;; Safety cap fallback (while condition exhausted)
-  show (word "[MAX RUNS REACHED] " max-runs " runs completed without convergence."
-    " p-hat=" (precision p-hat 4)
-    " moe=" (precision moe 4))
-end
-
-;; ─────────────────────────────────────────────────────────────
-;; go — experiment entry point (BehaviorSpace-compatible)
+;; Main entry point (from NetLogo GUI or headless mode)
 ;; ─────────────────────────────────────────────────────────────
 to go
-  run-until-converged
+  ;; Normal GUI operation: run one step per click of the 'forever' button
+  if not simulation-over? [
+    go-step
+  ]
+  if simulation-over? [
+    output-final-results
+    stop ;; Stops the forever button in the GUI
+  ]
 end
 
-to run-export-phase
-  if auto-export? [
-    ;; Invariant check on first export tick — warn if header was not pre-written
-    if ticks = 0 and not csv-initialized? [
-      show "[EXPORT WARNING] csv-initialized? is false at tick 0 — headers may be missing. Run Setup first."
-    ]
-    if ticks = 0 and not event-csv-initialized? [
-      show "[EXPORT WARNING] event-csv-initialized? is false at tick 0 — event headers may be missing. Run Setup first."
-    ]
+;; ─────────────────────────────────────────────────────────────
+;; COMMENTED OUT: Old Monte Carlo convergence procedures
+;; ─────────────────────────────────────────────────────────────
 
-    ;; Snapshot: write full summary row every N ticks
-    if (ticks mod export-every-ticks = 0) [
-      export-ngfs-data
-    ]
-    ;; Event: log surrender wave whenever new surrenders have occurred
-    if surrenders-total > surrenders-last-logged [
-      log-event "surrender-wave" 0 0 (surrenders-total - surrenders-last-logged)
-      set surrenders-last-logged surrenders-total
-    ]
-  ]
-end]]></code>
+;; to go-until-end
+;;   [COMMENTED OUT - now replaced with simpler run-battle]
+;; end
+
+;; to update-stats
+;;   [COMMENTED OUT - convergence tracking no longer needed]
+;; end
+
+;; to run-until-converged
+;;   [COMMENTED OUT - single battle per invocation now]
+;; end]]></code>
 <widgets>
     <view x="368" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
