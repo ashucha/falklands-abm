@@ -1,0 +1,422 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ARGENTINE TROOPS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to spawn-argentine-battalions
+
+  create-argentine-troops 4 [
+
+    set color cyan
+    set size 2
+
+    set strength 100
+    set morale 100
+    set entrenched? false
+    set engagement-target nobody
+    set in-bunker? false
+    set suppressed-ticks 0
+    set bunker-target nobody
+    set panic-move? false
+
+    move-to one-of patches with [not water?]
+
+  ]
+
+end
+
+to run-argentine-troops
+
+  ask argentine-troops [
+    argentine-update-preconditions
+
+    ifelse argentine-survives-tick? [
+      argentine-resolve-cover
+      argentine-resolve-withdrawal
+      argentine-resolve-combat
+      update-visual-state
+    ] [
+      die
+    ]
+
+  ]
+
+end
+
+to argentine-update-preconditions
+  ;; keep suppression bounded and deterministic per tick
+  if suppressed-ticks < 0 [
+    set suppressed-ticks 0
+  ]
+  if suppression-enabled? and suppressed-ticks > 0 [
+    set suppressed-ticks suppressed-ticks - 1
+  ]
+  if not suppression-enabled? [
+    set suppressed-ticks 0
+  ]
+
+  ;; if bunker is destroyed under them, clear protection state
+  if in-bunker? and (not [bunker?] of patch-here or [bunker-strength] of patch-here <= 0) [
+    set in-bunker? false
+    set entrenched? false
+  ]
+
+  ;; bunker target must remain valid
+  if bunker-target != nobody [
+    if not [bunker?] of bunker-target or [bunker-strength] of bunker-target <= 0 [
+      set bunker-target nobody
+    ]
+  ]
+end
+
+to-report argentine-survives-tick?
+  ;; Every branch must report; die is handled by the caller (run-argentine-troops)
+  if should-surrender? [
+    set surrenders-total surrenders-total + 1
+    report false
+  ]
+  report true
+end
+
+to argentine-resolve-cover
+  ;; immediate occupancy if already on a bunker
+  occupy-bunker-if-possible
+
+  ;; panic should be evaluated once per tick, before movement decisions
+  evaluate-panic
+
+  ifelse in-bunker? [
+    set entrenched? true
+    set bunker-target nobody
+  ] [
+    ;; if pinned and not in bunker, hold position this phase
+    let pinned? (suppressed-ticks > 0)
+    if not pinned? [
+      choose-bunker-target
+      move-to-bunker
+      occupy-bunker-if-possible
+    ]
+
+    if in-bunker? [
+      set entrenched? true
+      set bunker-target nobody
+    ]
+
+    if not in-bunker? and not pinned? and not entrenched? [
+      move-to-ridge
+    ]
+  ]
+end
+
+to argentine-resolve-withdrawal
+  ifelse in-bunker? [
+    set panic-move? false
+  ] [
+    if panic-move? [
+      panic-retreat-to-cover
+    ]
+    if (not panic-move?) and strength < 30 [
+      retreat
+    ]
+  ]
+end
+
+to argentine-resolve-combat
+  detect-british
+  if engagement-target != nobody [
+    fire-at-target
+  ]
+end
+
+to evaluate-panic
+  set panic-move? false
+  if in-bunker? [ stop ]
+  if morale < 25 [
+    set panic-move? true
+    set panic-events-total panic-events-total + 1
+    stop
+  ]
+  if strength < 20 [
+    set panic-move? true
+    set panic-events-total panic-events-total + 1
+    stop
+  ]
+  if suppressed-ticks > 0 and (morale < 40 or strength < 35) [
+    if random-float 1 < 0.35 [
+      set panic-move? true
+      set panic-events-total panic-events-total + 1
+    ]
+  ]
+end
+
+to update-visual-state
+
+  set color cyan
+
+  let display-char "E"
+
+  if in-bunker? [
+    set display-char "B"
+  ]
+
+  if [trench?] of patch-here and not in-bunker? [
+    set display-char "T"
+  ]
+
+  if suppressed-ticks > 0 [
+    set label word display-char "*"
+    set label-color yellow
+  ]
+
+  if suppressed-ticks = 0 [
+    set label display-char
+    set label-color white
+  ]
+
+end
+
+to move-to-ridge
+
+  let best-patch max-one-of patches in-radius 2 [elevation-level]
+
+  if best-patch != nobody [
+
+    if [elevation-level] of best-patch > [elevation-level] of patch-here [
+      face best-patch
+      if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
+        fd 1
+      ]
+    ]
+
+    if [elevation-level] of best-patch <= [elevation-level] of patch-here [
+      set entrenched? true
+
+      ask patch-here [
+        set trench? true
+        if not bunker? [
+          set pcolor brown
+        ]
+      ]
+    ]
+
+  ]
+
+end
+
+to choose-bunker-target
+
+  ifelse in-bunker? [
+    set bunker-target nobody
+  ] [
+    ;; only seek bunker when stressed
+    if morale > 60 and strength > 70 and suppressed-ticks = 0 [
+      set bunker-target nobody
+    ]
+
+    if not (morale > 60 and strength > 70 and suppressed-ticks = 0) [
+      ;; keep current target if it is still legal and has room
+      let keep-current? false
+      if bunker-target != nobody [
+        let target-has-bunker? [bunker?] of bunker-target
+        let target-alive? ([bunker-strength] of bunker-target > 0)
+        let target-space?
+          ([count turtles-here with [breed = argentine-troops and in-bunker?]] of bunker-target) <
+          ([bunker-capacity] of bunker-target)
+        if target-has-bunker? and target-alive? and target-space? [
+          set keep-current? true
+        ]
+      ]
+
+      if not keep-current? [
+        set bunker-target min-one-of
+          (patches in-radius 5 with [
+            bunker? and
+            bunker-strength > 0 and
+            count turtles-here with [breed = argentine-troops and in-bunker?] < bunker-capacity
+          ])
+          [distance myself]
+      ]
+    ]
+  ]
+
+end
+
+to move-to-bunker
+  if bunker-target != nobody [
+    face bunker-target
+    if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
+      fd 1
+    ]
+  ]
+end
+
+to occupy-bunker-if-possible
+
+  if [bunker?] of patch-here and [bunker-strength] of patch-here > 0 [
+    let occupants count turtles-here with [breed = argentine-troops and in-bunker?]
+
+    if occupants < [bunker-capacity] of patch-here [
+      if not in-bunker? [
+        set bunker-entries-total bunker-entries-total + 1
+      ]
+      set in-bunker? true
+      set entrenched? true
+      set bunker-target nobody
+      set panic-move? false
+    ]
+  ]
+
+end
+
+to detect-british
+  if any? british-troops [
+    let enemy min-one-of british-troops [distance myself]
+    let detect-range current-detection-range
+
+    if distance enemy <= detect-range [ set engagement-target enemy ]
+    if distance enemy > detect-range [ set engagement-target nobody ]
+  ]
+
+  if not any? british-troops [
+    set engagement-target nobody
+  ]
+end
+
+to fire-at-target
+  if engagement-target = nobody [ stop ]
+
+  let hit-prob current-hit-prob
+  let target-agent engagement-target
+
+  ;; morale gain for killing enemy
+  let likely-kill? false
+  if [strength] of target-agent <= 10 [
+    set likely-kill? true
+  ]
+
+  if random-float 1 < hit-prob [
+    ask target-agent [
+      set strength strength - 10
+      if strength <= 0 [
+        die
+      ]
+    ]
+
+    if likely-kill? [
+      set morale morale + 0.5
+      if morale > 100 [ set morale 100 ]
+    ]
+  ]
+end
+
+to retreat
+  set entrenched? false
+  set in-bunker? false
+  set bunker-target nobody
+  set engagement-target nobody
+  rt random 360
+  if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
+    fd 1
+  ]
+end
+
+to panic-retreat-to-cover
+  choose-bunker-target
+  if bunker-target != nobody [
+    move-to-bunker
+    occupy-bunker-if-possible
+  ]
+  let moved-to-trench? false
+  if bunker-target = nobody and not in-bunker? [
+    let nearby-trench one-of patches in-radius 3 with [trench? and not water?]
+    if nearby-trench != nobody [
+      face nearby-trench
+      if patch-ahead 1 != nobody and not [water?] of patch-ahead 1 [
+        fd 1
+        set moved-to-trench? true
+      ]
+    ]
+  ]
+  if bunker-target = nobody and not in-bunker? and not moved-to-trench? [
+    retreat
+  ]
+end
+
+to apply-suppression [ticks-to-add]
+  if not suppression-enabled? [
+    set suppressed-ticks 0
+    stop
+  ]
+  let old suppressed-ticks
+  set suppressed-ticks max list suppressed-ticks ticks-to-add
+  if old = 0 and suppressed-ticks > 0 [
+    set suppression-events-total suppression-events-total + 1
+  ]
+end
+
+to-report should-surrender?
+  ;; Pure reporter — no stop/die; caller owns the death
+  if not surrender-enabled? [ report false ]
+  if morale < 40 or strength < 30 [
+    let surrender-prob 0
+    set surrender-prob surrender-prob + max list 0 ((40 - morale) / 200)
+    set surrender-prob surrender-prob + max list 0 ((30 - strength) / 150)
+    if suppressed-ticks > 0 [
+      set surrender-prob surrender-prob + 0.05
+    ]
+    if in-bunker? [
+      set surrender-prob surrender-prob * 0.7
+    ]
+    if surrender-prob > 0.6 [
+      set surrender-prob 0.6
+    ]
+    if random-float 1 < surrender-prob [
+      report true
+    ]
+  ]
+  report false
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; REPORTERS FOR ARGENTINE COMBAT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report current-detection-range
+  let detect-range 4
+
+  if [elevation-level] of patch-here = 2 [
+    set detect-range 6
+  ]
+
+  if in-bunker? [
+    set detect-range detect-range + 1
+  ]
+
+  report detect-range
+end
+
+to-report current-hit-prob
+  let hit-prob 0.25
+
+  if entrenched? [
+    set hit-prob 0.35
+  ]
+
+  if in-bunker? [
+    set hit-prob 0.40
+  ]
+
+  ;; ridge advantage
+  if [elevation-level] of patch-here = 2 [
+    set hit-prob hit-prob + 0.10
+  ]
+
+  if suppressed-ticks > 0 [
+    set hit-prob hit-prob * 0.5
+  ]
+
+  if hit-prob > 0.95 [
+    set hit-prob 0.95
+  ]
+
+  report hit-prob
+end
