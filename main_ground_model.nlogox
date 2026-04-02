@@ -19,6 +19,7 @@ globals [
   ;; DateTime Tracking (from utils/datetime.nls)
   cur-min cur-hour cur-day cur-month cur-year
   current-date-string
+  start-cur-min start-cur-hour start-cur-day start-cur-month start-cur-year
   
   ;; Harness Inputs (DataClass GroundInputs)
   ground-battle               ;; str: start date (e.g., "May 21 1982 - 00:00")
@@ -173,7 +174,14 @@ to setup
   ;; Initialize conflict tracking
   set conflict-days 0
   update-date-string
-  
+
+  ;; store source date for tick-based computation in monitor
+  set start-cur-min cur-min
+  set start-cur-hour cur-hour
+  set start-cur-day cur-day
+  set start-cur-month cur-month
+  set start-cur-year cur-year
+
   ;; Initialize analytics counters and dummy data (must run before ship initialization)
   initialize-global-state
   
@@ -228,6 +236,39 @@ to parse-ground-battle-start-date
     set ground-battle-start-string "May 21 1982 - 00:00"
     show "[SETUP] WARNING: ground-battle not set or invalid, using May 21 1982 00:00"
   ]
+end
+
+;; reporter that computes the date string for a given ticks value without mutating model state
+;; Assumes 180 minutes per tick in ground battle loop.
+to-report date-string-from-ticks [tick-count]
+  let saved-cur-min cur-min
+  let saved-cur-hour cur-hour
+  let saved-cur-day cur-day
+  let saved-cur-month cur-month
+  let saved-cur-year cur-year
+  let saved-current-date-string current-date-string
+  let saved-conflict-days conflict-days
+
+  set cur-min start-cur-min
+  set cur-hour start-cur-hour
+  set cur-day start-cur-day
+  set cur-month start-cur-month
+  set cur-year start-cur-year
+  set conflict-days 0
+
+  advance-time (tick-count * 180)
+  update-date-string
+  let result current-date-string
+
+  set cur-min saved-cur-min
+  set cur-hour saved-cur-hour
+  set cur-day saved-cur-day
+  set cur-month saved-cur-month
+  set cur-year saved-cur-year
+  set current-date-string saved-current-date-string
+  set conflict-days saved-conflict-days
+
+  report result
 end
 
 to-report parse-date-string [date-str]
@@ -821,7 +862,9 @@ to go-step
   run-british-troops
   run-ngfs-phase
   tick
-end;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; BATTLE SIMULATION CONTROL
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -896,6 +939,8 @@ end
     <view x="368" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
     <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
     <button x="65" y="5" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="go">go</button>
+    <monitor x="135" precision="17" y="5" height="30" fontSize="11" width="210" display="Live Date (ticks)">date-string-from-ticks ticks</monitor>
+    <monitor x="135" precision="17" y="35" height="30" fontSize="11" width="210" display="Live Date (state)">current-date-string</monitor>
   </widgets>
   <info>## WHAT IS IT?
 
