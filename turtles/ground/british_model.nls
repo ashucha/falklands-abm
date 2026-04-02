@@ -101,7 +101,7 @@ to move-british-troops
     ;; [DEBUG H-B] track max stuck value ever seen across all troops
     if ticks-stuck > debug-max-stuck [ set debug-max-stuck ticks-stuck ]
 
-    if ticks-stuck >= 20 [ ;; increased from 5 to account for slower resolution
+    if ticks-stuck >= 10 [ ;; trigger unstick earlier to avoid prolonged stuckness
       ;; [DEBUG H-C] count how many times escape fires
       set debug-escape-count debug-escape-count + 1
       set ticks-stuck 0
@@ -168,47 +168,23 @@ to detect-argentine-troops
 end
 
 ;; ─────────────────────────────────────────────────────────────
-;; Helper: Calculate angle in degrees between two headings (0-360)
-;; Returns distance in degrees (0-180, symmetric)
+;; Helper: Select best neighbor toward target or eastward
+;; Simpler logic reduces wobbling and improves pathfinding
 ;; ─────────────────────────────────────────────────────────────
-to-report heading-difference [heading1 heading2]
-  let diff abs (heading1 - heading2)
-  if diff > 180 [ set diff 360 - diff ]
-  report diff
-end
-
-;; ─────────────────────────────────────────────────────────────
-;; Helper: Select best neighbor weighted by direction to target
-;; If stuck and target exists, bias toward neighbors that point toward target direction
-;; Otherwise pick randomly from safe neighbors (breaks deadlocks)
-;; ─────────────────────────────────────────────────────────────
-to-report select-weighted-neighbor [safe-neighbors target stuck-ticks]
+to-report select-best-neighbor [safe-neighbors target stuck-ticks]
   if not any? safe-neighbors [ report nobody ]
   
-  ;; If very stuck (3+ ticks), use random escape 15% of time
-  if stuck-ticks >= 3 and random-float 1 < 0.15 [
+  ;; If stuck, use random escape 20% of the time
+  if stuck-ticks >= 5 and random-float 1 < 0.20 [
     report one-of safe-neighbors
   ]
   
-  ;; If target exists, weight neighbors by directional alignment
+  ;; Otherwise pick neighbor closest to target (or eastmost if no target)
   ifelse target != nobody [
-    let target-heading towards target
-    let best-neighbor nobody
-    let best-alignment 999  ;; lower is better (smaller angle difference)
-    
-    ask safe-neighbors [
-      let neighbor-heading towards target  ;; heading FROM this neighbor TO target
-      let alignment heading-difference neighbor-heading target-heading
-      if alignment < best-alignment [
-        set best-alignment alignment
-        set best-neighbor self
-      ]
-    ]
-    
-    ifelse best-neighbor != nobody [ report best-neighbor ] [ report one-of safe-neighbors ]
+    report min-one-of safe-neighbors [distance target]
   ] [
-    ;; No target — just pick randomly
-    report one-of safe-neighbors
+    ;; No target — prefer eastward movement
+    report max-one-of safe-neighbors [pxcor]
   ]
 end
 
@@ -223,50 +199,29 @@ to update-recent-patches
 end
 
 ;; ─────────────────────────────────────────────────────────────
-;; Move toward engagement-target while avoiding water
+;; Move toward engagement-target while avoiding water (simplified)
 ;; ─────────────────────────────────────────────────────────────
 to advance-british-troops
-  ;; Emergency recovery — should not happen, but relocate if already on water
+  ;; Emergency recovery — relocate if on water
   if [water?] of patch-here [
     let dry-patch min-one-of patches with [not water?] [distance myself]
     if dry-patch != nobody [ move-to dry-patch ]
     stop
   ]
 
-  ;; Always move patch-to-patch so every step is a confirmed land tile
+  ;; Get safe neighbors (non-water)
   let safe-neighbors neighbors with [not water?]
   if not any? safe-neighbors [ stop ]  ;; fully enclosed — hold position
 
-  ;; Track where we've been (breadcrumb)
+  ;; Track breadcrumb
   update-recent-patches
 
-  let et engagement-target
-  ifelse et != nobody [
-    ;; Target exists — try to close distance
-    let best min-one-of safe-neighbors [distance et]
-    ifelse [distance et] of best < distance et [
-      ;; Progress toward target — move (scaled down) and reset stuck counter
-      face best
-      fd 0.25 ;; Scaled from 1.0/move-to
-      if distance best < 0.1 [ set ticks-stuck 0 ] ;; reset when reached or near
-    ] [
-      ;; No neighbor reduces distance — target likely across water or in local dead zone
-      ;; Use weighted directional selection to intelligently escape the bottleneck
-      let next-patch select-weighted-neighbor safe-neighbors et ticks-stuck
-      if next-patch != nobody [
-        face next-patch
-        fd 0.25 ;; Scaled from 1.0/move-to
-        set ticks-stuck ticks-stuck + 1
-      ]
-    ]
-  ] [
-    ;; No target in range — use weighted selection to break eastward bias
-    ;; This gives Brits more varied movement while still drifting generally east
-    let next-patch select-weighted-neighbor safe-neighbors nobody ticks-stuck
-    if next-patch != nobody [ 
-      face next-patch
-      fd 0.25 ;; Scaled from 1.0/move-to
-    ]
+  ;; Select best neighbor (prefers closing distance to target or moving east)
+  let next-patch select-best-neighbor safe-neighbors engagement-target ticks-stuck
+  if next-patch != nobody [
+    ;; Face and move smoothly
+    face next-patch
+    fd 0.25 ;; Scaled movement
   ]
 end
 

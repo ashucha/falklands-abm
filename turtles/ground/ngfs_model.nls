@@ -222,6 +222,7 @@ to ngfs-apply-damage [center]
     ;; Unit dies if strength depleted OR fails death roll
     if strength <= 0 or random-float 1 < death-prob [
       set ngfs-total-kills ngfs-total-kills + 1
+      set argentine-casualties argentine-casualties + 1
       die
     ]
 
