@@ -40,7 +40,7 @@ to setup-carriers
     set state "straight"
     set striking? false
     set alert-avail? true
-    set turn-rate 0.5
+    set turn-rate 0;0.5
     set size 5
     set color gray
     if spawn-patch != nobody [
@@ -58,7 +58,7 @@ to setup-carriers
     set state "straight"
     set striking? false
     set alert-avail? true
-    set turn-rate 0.5
+    set turn-rate 0;0.5
     set size 5
     set color gray
     if spawn-patch != nobody [
