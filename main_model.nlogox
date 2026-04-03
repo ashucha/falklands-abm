@@ -52,6 +52,16 @@ globals [
   skyhawk-max-speed skyhawk-cruise-speed skyhawk-range
   sue-max-speed sue-cruise-speed sue-range
   bomb-range exocet-range
+
+  ;; harness inputs/state
+  trial-id
+  trial-seed
+  faa-loss-threshold
+  naval-trial-done?
+  ground-trial-started?
+  air-battle-end-string
+  ground-battle-start-string
+  initial-amphib-count
   
 ] 
 
@@ -80,12 +90,17 @@ daggers-own [ bombs launch aircraft ]
 
 ;; initializes everything
 to setup
-  clear-all
+  ;clear-all
+
+  if trial-id = 0 [ set trial-id -1 ]
+  if trial-seed = 0 [ set trial-seed 20260402 ]
+  if faa-loss-threshold = 0 [ set faa-loss-threshold 25 ] ;; default is 25 if faa-loss-threshold not set by harness
+  random-seed trial-seed
   
   setup-map
   draw-x-limits
   
-  show count patches with [ zone = "zone-1" and ocean? ]
+;   show count patches with [ zone = "zone-1" and ocean? ]
 
   
   ;; initializes global variables
@@ -96,11 +111,16 @@ to setup
   set failures 0
   set faa-jets 75
   set faa-losses 0
+;   set faa-loss-threshold 25
   set amphibs-landed 0
   set carriers-hit 0
   set frigates-hit 0
   set destroyers-hit 0
   set amphibs-hit 0
+  set naval-trial-done? false
+  set ground-trial-started? false
+  set air-battle-end-string ""
+  set ground-battle-start-string ""
   
   set cur-min 0
   set cur-hour 0
@@ -124,6 +144,7 @@ to setup
 ;   setup-amphibs
   setup-shars
   setup-faa-constants
+  set initial-amphib-count count amphibs
   
   ;; CAP labels
   if show-caps? [
@@ -152,8 +173,8 @@ to setup
 end
 
 to-report end-condition
-  let faa-low? (faa-losses >= 25)
-  let amphibs-complete? (amphibs-landed + amphibs-hit >= 25)
+  let faa-low? (faa-losses >= faa-loss-threshold)
+  let amphibs-complete? (amphibs-landed + amphibs-hit >= 10)
   let carrier-hit? (count carriers = 1)
 
   report (carrier-hit? or (faa-low? and amphibs-complete?))
@@ -161,7 +182,11 @@ end
 
 ;; this is the core loop that runs all of the turtles' logic each tick
 to go
-  if end-condition [
+  if count carriers = 1 [ 
+    error (word "carrier hit: " current-date-string) ; throws an error to stop execution and ensure the error message is logged in the CSV whereas nothing else is
+    stop 
+  ]
+  if naval-trial-done? and ground-trial-started? [ 
     stop
   ]
   advance-time minutes-per-tick
@@ -178,13 +203,45 @@ to go
   ask carriers [ spawn-shars? ]
   ask frigates [ execute-logic ]
   ask destroyers [ execute-logic-destroyer ]
+  maybe-mark-ground-battle-start
+  maybe-end-air-battle
   tick
+end
+
+to maybe-mark-ground-battle-start
+  if ground-battle-start-string = "" and initial-amphib-count > 0 [
+    if amphibs-landed = initial-amphib-count - amphibs-hit [
+      set ground-trial-started? true
+      set ground-battle-start-string current-date-string
+      show (word "ground battle start: " ground-battle-start-string)
+      show (word "amphibs-landed: " amphibs-landed ", amphibs-hit: " amphibs-hit)
+    ]
+  ]
+end
+
+to maybe-end-air-battle
+  if faa-losses >= faa-loss-threshold [
+    if air-battle-end-string = "" [
+      set air-battle-end-string current-date-string
+    ]
+    set naval-trial-done? true
+    ;show (word "ended air battle: " air-battle-end-string)
+    ;show (word "faa-losses: " faa-losses ", threshold: " faa-loss-threshold)
+    ;show (word "Boats: " get-ship-coords)
+  ]
 end
 
 ;; Generic RNG function
 to-report RNG [ p ]
   let probability p
   ifelse random-float 1.0 < probability [ report true ][ report false ]
+end
+
+to-report get-ship-coords
+  let destroyer-coords [ (list xcor ycor) ] of destroyers
+  let frigate-coords [ (list xcor ycor) ] of frigates
+  let ship-coords sentence destroyer-coords frigate-coords
+  report ship-coords
 end
 
 
@@ -245,8 +302,6 @@ end
     <monitor x="965" precision="17" y="940" height="60" fontSize="11" width="100" display="Frigates Hit">frigates-hit</monitor>
     <monitor x="965" precision="17" y="1010" height="60" fontSize="11" width="100">destroyers-hit</monitor>
     <monitor x="965" precision="17" y="1080" height="60" fontSize="11" width="100">amphibs-hit</monitor>
-    <monitor x="1570" precision="17" y="875" height="60" fontSize="11" width="100" display="FAA Jets Left">faa-jets</monitor>
-    <note x="1560" y="855" backgroundDark="0" fontSize="12" width="215" markdown="false" height="35" textColorDark="-1" textColorLight="-16777216" backgroundLight="0">this monitor is not that helpful</note>
     <plot x="10" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="count" y="511" xMin="0.0" height="320" legend="true" xMax="10.0" yMin="0.0" width="410" xAxis="time" display="Air Cover Performance">
       <setup></setup>
       <update></update>
@@ -264,7 +319,7 @@ end
       </pen>
       <pen interval="1.0" mode="0" display="# FAA Jets" color="-817084" legend="true">
         <setup></setup>
-        <update>plot (75 - faa-losses)</update>
+        <update>plot (faa-jets - faa-losses)</update>
       </pen>
       <pen interval="1.0" mode="0" display="Amphibs Landed" color="-10402772" legend="true">
         <setup></setup>
@@ -273,6 +328,8 @@ end
     </plot>
     <monitor x="10" precision="17" y="846" height="60" fontSize="11" width="100" display="FAA Sorties Launched">attacks</monitor>
     <monitor x="116" precision="17" y="846" height="60" fontSize="11" width="100" display="FAA losses">faa-losses</monitor>
+    <monitor x="10" precision="17" y="910" height="60" fontSize="11" width="100" display="FAA Jets Left">faa-jets - faa-losses</monitor>
+    <monitor x="275" precision="17" y="445" height="60" fontSize="11" width="101" display="Seed">trial-seed</monitor>
   </widgets>
   <info>## WHAT IS IT?
 

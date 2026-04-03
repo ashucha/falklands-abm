@@ -41,7 +41,7 @@ to setup-amphib-flotilla
     set phase-distance 125 ;; set so the destroyers/frigates move to final positions when flotilla is 75 patches from landing point
     ;; TODO: should this be a real distance? @Katelyn
     
-    hatch-amphibs 25 [
+    hatch-amphibs 10 [
       set shape "default" ;; determines the icon to display the turtle
       set name "type_42"
       set speed [speed] of myself

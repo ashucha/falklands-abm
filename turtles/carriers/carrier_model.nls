@@ -128,23 +128,6 @@ to move-carriers
       launch-alert-shars dagger-threat
       set alert-avail? false
     ]
-    
-    ifelse state = "turning" [
-      let delta subtract-headings new-heading heading
-      ifelse abs (delta) > turn-rate [ ;; need to keep turning
-        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
-      ] [
-        set state "straight"
-      ]
-    ] [
-      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
-      if ticks mod 500 = 0 [
-        if random 100 > 30 [ 
-          set new-heading new-heading + 45 - random 90
-          set state "turning"
-        ]
-      ]
-    ]
 let next-patch patch-ahead speed
 
 ifelse [ocean?] of next-patch [

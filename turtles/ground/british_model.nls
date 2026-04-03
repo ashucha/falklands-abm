@@ -1,0 +1,277 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BRITISH TROOPS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to spawn-british-troops
+  ;; Five task forces land on the western coast (San Carlos area)
+  ;; and begin advancing east toward Stanley.
+  ;; Positions are scaled to the v2 world (-16 to 16) and placed
+  ;; on valid (non-water) land on the western side of the map.
+  let initial-british-positions [
+    [-14  7]  ;; SBS
+    [-12  6]  ;; 3 Para
+    [-14  1]  ;; 40 Commando
+    [-13 -1]  ;; 2 Para
+    [-15  0]  ;; 45 Commando
+  ]
+
+  foreach initial-british-positions [ pos ->
+    let px item 0 pos
+    let py item 1 pos
+    ;; If the target patch is water, find the nearest non-water alternative
+    let dest-patch patch px py
+    if [water?] of dest-patch [
+      set dest-patch min-one-of patches with [not water? and pxcor < -5] [
+        distancexy px py
+      ]
+    ]
+    if dest-patch != nobody [
+      create-british-troops 1 [
+        move-to dest-patch
+        set color red
+        set size 2
+        set shape "default"
+
+        ;; Combat profile
+        set mobility            5
+        set lethality           30
+        set engagement-distance 7
+        set max-accuracy-distance 4
+        set invulnerability     0
+        set unit-type           "infantry"
+
+        ;; Behavioral state (turtles-own)
+        set strength            100
+        set morale              100
+        set entrenched?         false
+        set in-bunker?          false
+        set bunker-target       nobody
+        set engagement-target   nobody
+        set suppressed-ticks    0
+        set panic-move?         false
+
+        ;; British-troops-own
+        set status              "advancing"
+        set retreat-threshold   20
+        set ticks-stuck         0
+        set recent-patches      []
+        set label               strength
+      ]
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Phase driver — called once per tick from go
+;; ─────────────────────────────────────────────────────────────
+to run-british-troops
+  if not any? british-troops [ stop ]
+  ask british-troops [ move-british-troops ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Per-unit controller
+;; ─────────────────────────────────────────────────────────────
+to move-british-troops
+  ;; Kill check — unit is destroyed
+  if strength <= 0 [
+    set british-casualties british-casualties + 1
+    die
+  ]
+
+  ;; Clear stale target — the referenced troop may have died last tick
+  if engagement-target != nobody and not member? engagement-target turtles [
+    set engagement-target nobody
+  ]
+
+  ;; Branch: retreat vs. advance-and-engage
+  ifelse strength <= retreat-threshold [
+    set status "retreating"
+    retreat-british-troops
+  ] [
+    detect-argentine-troops
+
+    ;; Stuck detection — only increment; reset is handled by advance-british-troops
+    ;; when the troop actually makes forward progress (FIX: was resetting to 0 whenever
+    ;; a target was found, meaning ticks-stuck could never exceed 1 and the 5-tick
+    ;; escape never fired).
+    if engagement-target = nobody [
+      set ticks-stuck ticks-stuck + 1
+    ]
+    ;; [DEBUG H-B] track max stuck value ever seen across all troops
+    if ticks-stuck > debug-max-stuck [ set debug-max-stuck ticks-stuck ]
+
+    if ticks-stuck >= 10 [ ;; trigger unstick earlier to avoid prolonged stuckness
+      ;; [DEBUG H-C] count how many times escape fires
+      set debug-escape-count debug-escape-count + 1
+      set ticks-stuck 0
+      set status "advancing"
+      advance-british-troops
+      set label strength
+      stop
+    ]
+
+    ifelse engagement-target != nobody [
+      let dist distance engagement-target
+      ifelse dist <= engagement-distance [
+        ;; Within engagement range — close in or hold and fire
+        ifelse dist <= max-accuracy-distance [
+          set status "engaging"
+        ] [
+          set status "advancing"
+          advance-british-troops
+        ]
+        engage-argentine-troops
+      ] [
+        ;; Outside engagement range — keep advancing
+        set status "advancing"
+        advance-british-troops
+      ]
+    ] [
+      ;; No enemy visible — keep moving east
+      advance-british-troops
+    ]
+  ]
+
+  set label strength
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Scan for nearest Argentine unit within detection range
+;; ─────────────────────────────────────────────────────────────
+to detect-argentine-troops
+  ;; Only lock on to enemies reachable by land — skip targets separated by water.
+  ;; Candidates are sorted nearest-first so the first passing candidate is chosen.
+  let brit self
+  let visible-range engagement-distance * 2
+  let candidates sort-on [distance brit] (argentine-troops in-radius visible-range)
+
+  set engagement-target nobody
+  foreach candidates [ candidate ->
+    if engagement-target = nobody [
+      ;; Sample two patches at 1/3 and 2/3 along the straight line to the candidate
+      ;; (avoid dx/dy — those are NetLogo built-in heading-component primitives)
+      let delta-x ([xcor] of candidate - xcor)
+      let delta-y ([ycor] of candidate - ycor)
+      let p1 patch (xcor + delta-x / 3) (ycor + delta-y / 3)
+      let p2 patch (xcor + 2 * delta-x / 3) (ycor + 2 * delta-y / 3)
+      ;; Accept only if both midpoints exist and are land
+      let clear?
+        (p1 != nobody and not [water?] of p1) and
+        (p2 != nobody and not [water?] of p2)
+      if clear? [
+        set engagement-target candidate
+        face engagement-target
+      ]
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Helper: Select best neighbor toward target or eastward
+;; Simpler logic reduces wobbling and improves pathfinding
+;; ─────────────────────────────────────────────────────────────
+to-report select-best-neighbor [safe-neighbors target stuck-ticks]
+  if not any? safe-neighbors [ report nobody ]
+  
+  ;; If stuck, use random escape 20% of the time
+  if stuck-ticks >= 5 and random-float 1 < 0.20 [
+    report one-of safe-neighbors
+  ]
+  
+  ;; Otherwise pick neighbor closest to target (or eastmost if no target)
+  ifelse target != nobody [
+    report min-one-of safe-neighbors [distance target]
+  ] [
+    ;; No target — prefer eastward movement
+    report max-one-of safe-neighbors [pxcor]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Helper: Update breadcrumb trail (keep last 3 patches visited)
+;; ─────────────────────────────────────────────────────────────
+to update-recent-patches
+  set recent-patches lput patch-here recent-patches
+  if length recent-patches > 3 [
+    set recent-patches but-first recent-patches
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Move toward engagement-target while avoiding water (simplified)
+;; ─────────────────────────────────────────────────────────────
+to advance-british-troops
+  ;; Emergency recovery — relocate if on water
+  if [water?] of patch-here [
+    let dry-patch min-one-of patches with [not water?] [distance myself]
+    if dry-patch != nobody [ move-to dry-patch ]
+    stop
+  ]
+
+  ;; Get safe neighbors (non-water)
+  let safe-neighbors neighbors with [not water?]
+  if not any? safe-neighbors [ stop ]  ;; fully enclosed — hold position
+
+  ;; Track breadcrumb
+  update-recent-patches
+
+  ;; Select best neighbor (prefers closing distance to target or moving east)
+  let next-patch select-best-neighbor safe-neighbors engagement-target ticks-stuck
+  if next-patch != nobody [
+    ;; Face and move smoothly
+    face next-patch
+    fd 0.25 ;; Scaled movement
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Fire at current engagement-target
+;; ─────────────────────────────────────────────────────────────
+to engage-argentine-troops
+  if engagement-target = nobody [ stop ]
+
+  let dist distance engagement-target
+  let hit-prob (0.4 + (0.4 / max list dist 0.1)) * 0.25 ;; Scaled for 4x slower resolution
+
+  if random-float 1 < hit-prob [
+    ask engagement-target [
+      set strength strength - [lethality] of myself
+    ]
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Retreat behaviour (stub — expand for future phases)
+;; ─────────────────────────────────────────────────────────────
+to retreat-british-troops
+  ;; Move away from the nearest Argentine threat
+  if engagement-target != nobody [
+    face engagement-target
+    rt 180
+    let retreat-distance mobility * 0.1
+    let new-x xcor + retreat-distance * sin heading
+    let new-y ycor + retreat-distance * cos heading
+
+    if new-x < min-pxcor [ set new-x min-pxcor ]
+    if new-x > max-pxcor [ set new-x max-pxcor ]
+    if new-y < min-pycor [ set new-y min-pycor ]
+    if new-y > max-pycor [ set new-y max-pycor ]
+
+    let dest-patch patch new-x new-y
+    if dest-patch != nobody and not [water?] of dest-patch [
+      setxy new-x new-y
+    ]
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; REPORTERS FOR BRITISH MOVEMENT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report british-uphill-move-multiplier [from-patch to-patch]
+  if [elevation-level] of to-patch > [elevation-level] of from-patch [
+    report 0.5
+  ]
+  report 1
+end

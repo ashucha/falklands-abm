@@ -1,7 +1,7 @@
 amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count my-flotilla lp-x lp-y ]
 
 to setup-amphibs-old 
-  create-amphibs 25 [  
+  create-amphibs 10 [   ;; sources say somewhere between 8-12 amphibs were used, using an even 10
     set shape "default" ;; determines the icon to display the turtle
     set name "type_42"
     set speed 0.45
