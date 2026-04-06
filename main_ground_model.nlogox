@@ -203,7 +203,7 @@ to initialize-global-state
   if suppression-enabled? != true and suppression-enabled? != false [ set suppression-enabled? true ]
   if surrender-enabled? != true and surrender-enabled? != false [ set surrender-enabled? true ]
   if show-heatmap? != true and show-heatmap? != false [ set show-heatmap? false ]
-  if historical-spawn? != true and historical-spawn? != false [ set historical-spawn? false ]
+  if historical-spawn? != true and historical-spawn? != false [ set historical-spawn? true ]
   
   ;; NGFS runtime state
   set ngfs-last-fire-tick 0
@@ -392,24 +392,34 @@ to setup-bunkers
     set plabel ""
   ]
 
-  let candidates patches with [not water?]
-
-  if bunker-mode = "historical" [
-    set candidates patches with [
-      elevation-level = 2 and
-      not water? and
-      pxcor > 0
+  ifelse bunker-mode = "historical" [
+    ;; Historical mode: place bunkers at fixed coordinates
+    let historical-bunker-coords [[10 2] [12 -4] [8 -8] [11 0] [9 -6]]
+    foreach historical-bunker-coords [ coord ->
+      let b-patch patch (item 0 coord) (item 1 coord)
+      if b-patch != nobody and not [water?] of b-patch [
+        ask b-patch [
+          set bunker? true
+          set bunker-strength 100
+          set bunker-capacity 1
+          set pcolor black
+          set plabel "B"
+          set plabel-color white
+        ]
+      ]
     ]
-  ]
-
-  if any? candidates [
-    ask n-of (min list 5 count candidates) candidates [
-      set bunker? true
-      set bunker-strength 100
-      set bunker-capacity 1
-      set pcolor black
-      set plabel "B"
-      set plabel-color white
+  ] [
+    ;; Random mode: select random high-ground patches in east
+    let candidates patches with [not water?]
+    if any? candidates [
+      ask n-of (min list 5 count candidates) candidates [
+        set bunker? true
+        set bunker-strength 100
+        set bunker-capacity 1
+        set pcolor black
+        set plabel "B"
+        set plabel-color white
+      ]
     ]
   ]
 
@@ -486,7 +496,7 @@ to output-final-results
   
   ;; Set the specific harness output variables
   set ground-battle-end current-date-string
-  set conflict-days (ticks * 0.25)
+  set conflict-days (ticks * 0.125)
   
   set british-kia (british-battalions-spawned - count british-troops)
   set argentine-kia ngfs-total-kills
@@ -555,9 +565,9 @@ to output-final-results
   
   show (word "[BATTLE COMPLETE] Trial " trial-id 
     " | Duration: " duration-days " days"
-    " | British kills: " british-killed
-    " | Argentine kills: " argentine-killed
-    " | Argentine surrendered: " argentine-surrendered
+    " | British units killed: " british-killed
+    " | Argentine units killed: " argentine-killed
+    " | Argentine units surrendered: " argentine-surrendered
     " | Outcome: " outcome)
 end
 
@@ -639,7 +649,7 @@ end
 ;; One tick of battle logic
 ;; ─────────────────────────────────────────────────────────────
 to go-step
-  advance-time 180  ;; Advance 180 minutes (3 hours) per tick
+  advance-time 90  ;; Advance 90 minutes (1.5 hours) per tick
   update-date-string
   update-ship-status
   
@@ -721,7 +731,7 @@ end
 ;; end]]></code>
   <widgets>
     <view x="368" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
-    <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
+    <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
     <button x="65" y="5" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="go">go</button>
     <monitor x="5" precision="17" y="50" height="60" fontSize="11" width="150" display="Ground Start Date">ground-battle-start-string</monitor>
     <monitor x="5" precision="17" y="115" height="60" fontSize="11" width="150" display="Current Date">current-date-string</monitor>
