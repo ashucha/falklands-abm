@@ -7,6 +7,8 @@
 
 ;; ─────────────────────────────────────────────────────────────
 ;; Initialize ten Argentine battalions: 5 near Port Stanley, 5 scattered
+;; In historical mode: remaining 5 spawn at fixed coordinates
+;; In random mode: remaining 5 spawn at random high-ground locations
 ;; ─────────────────────────────────────────────────────────────
 to spawn-argentine-battalions
   ;; First 5 units: concentrate near Port Stanley (x: 7-12, y: -5 to -2)
@@ -37,60 +39,90 @@ to spawn-argentine-battalions
     ]
   ]
   
-  ;; Remaining 5 units: spawn on high ground in rect [-16,-10] to [6,3]
-  ;; 4 units biased toward left (x: -16 to 0), 1 unit anywhere in rect
-  create-argentine-troops 4 [
-    set color cyan
-    set size 2
+  ;; Remaining 5 units: either at fixed historical locations or random high ground
+  ifelse historical-spawn? [
+    ;; Historical mode: spawn at exact fixed coordinates
+    let historical-positions [[-8 -1] [-12 -9] [-2 3] [6 0] [1 -11]]
+    foreach historical-positions [ pos ->
+      create-argentine-troops 1 [
+        set color cyan
+        set size 2
 
-    ;; Combat statistics
-    set strength 100
-    set morale 100
+        ;; Combat statistics
+        set strength 100
+        set morale 100
 
-    ;; Cover and bunker state
-    set entrenched? false
-    set in-bunker? false
-    set bunker-target nobody
+        ;; Cover and bunker state
+        set entrenched? false
+        set in-bunker? false
+        set bunker-target nobody
 
-    ;; Combat engagement
-    set engagement-target nobody
-    set suppressed-ticks 0
+        ;; Combat engagement
+        set engagement-target nobody
+        set suppressed-ticks 0
 
-    ;; Behavioral flags
-    set panic-move? false
+        ;; Behavioral flags
+        set panic-move? false
 
-    ;; Spawn at random high ground location on LEFT side of rect
-    let valid-patches patches with [pxcor >= -16 and pxcor <= 0 and pycor >= -10 and pycor <= 3 and elevation-level = 2 and not water?]
-    if any? valid-patches [
-      move-to one-of valid-patches
+        ;; Move to exact position
+        setxy (item 0 pos) (item 1 pos)
+      ]
     ]
-  ]
-  
-  ;; 1 remaining unit: anywhere in the full high ground rect
-  create-argentine-troops 1 [
-    set color cyan
-    set size 2
+  ] [
+    ;; Random mode: spawn on high ground (4 units on left, 1 anywhere)
+    create-argentine-troops 4 [
+      set color cyan
+      set size 2
 
-    ;; Combat statistics
-    set strength 100
-    set morale 100
+      ;; Combat statistics
+      set strength 100
+      set morale 100
 
-    ;; Cover and bunker state
-    set entrenched? false
-    set in-bunker? false
-    set bunker-target nobody
+      ;; Cover and bunker state
+      set entrenched? false
+      set in-bunker? false
+      set bunker-target nobody
 
-    ;; Combat engagement
-    set engagement-target nobody
-    set suppressed-ticks 0
+      ;; Combat engagement
+      set engagement-target nobody
+      set suppressed-ticks 0
 
-    ;; Behavioral flags
-    set panic-move? false
+      ;; Behavioral flags
+      set panic-move? false
 
-    ;; Spawn at random high ground location in full rect
-    let valid-patches patches with [pxcor >= -16 and pxcor <= 6 and pycor >= -10 and pycor <= 3 and elevation-level = 2 and not water?]
-    if any? valid-patches [
-      move-to one-of valid-patches
+      ;; Spawn at random high ground location on LEFT side of rect
+      let valid-patches patches with [pxcor >= -16 and pxcor <= 0 and pycor >= -10 and pycor <= 3 and elevation-level = 2 and not water?]
+      if any? valid-patches [
+        move-to one-of valid-patches
+      ]
+    ]
+    
+    ;; 1 remaining unit: anywhere in the full high ground rect
+    create-argentine-troops 1 [
+      set color cyan
+      set size 2
+
+      ;; Combat statistics
+      set strength 100
+      set morale 100
+
+      ;; Cover and bunker state
+      set entrenched? false
+      set in-bunker? false
+      set bunker-target nobody
+
+      ;; Combat engagement
+      set engagement-target nobody
+      set suppressed-ticks 0
+
+      ;; Behavioral flags
+      set panic-move? false
+
+      ;; Spawn at random high ground location in full rect
+      let valid-patches patches with [pxcor >= -16 and pxcor <= 6 and pycor >= -10 and pycor <= 3 and elevation-level = 2 and not water?]
+      if any? valid-patches [
+        move-to one-of valid-patches
+      ]
     ]
   ]
 end
