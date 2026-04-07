@@ -706,6 +706,10 @@ to go
   if not ground-trial-done? [
     go-step
   ]
+  if conflict-days > 100 [ 
+    error (word "ground battle sagnated, canceling: " current-date-string) ; throws an error to stop execution and ensure the error message is logged in the CSV whereas nothing else is
+    stop 
+  ]
   
   ;; Automatically export results when trial ends (works for both GUI and harness)
   if ground-trial-done? and not trial-exported? [
