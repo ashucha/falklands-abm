@@ -1,4 +1,4 @@
-flotillas-own [ flotilla-type next-wp phase-distance amphib-radius ]
+flotillas-own [ flotilla-type next-wp phase-distance amphib-radius route ]
 
 to setup-flotillas
   setup-amphib-flotilla
@@ -10,20 +10,7 @@ to setup-amphib-flotilla
   
   create-flotillas 1 [
     set flotilla-type "amphib"
-    set waypoints (list
-      (list 47 20) ;; commented out for testing
-      (list 5  29)
-      (list -2 11) 
-      (list -2 9)
-;       (list  3 7)
-    ) 
-    
-    ;; optional coloring to see the waypoints
-    if show-waypoints? [
-      foreach waypoints [ w ->
-        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
-      ]
-    ]
+
      
     set w-i 0
     set amphib-radius 2
@@ -33,7 +20,37 @@ to setup-amphib-flotilla
       let cy mean [ycor] of carriers
       setxy cx cy
     ]
-;     setxy 74 13
+    
+    ifelse spawn-zone = "zone-5" [
+      set state "posted"
+      set waypoints (list (list 0 0))
+    ] [
+      ifelse ycor > 0 [
+        ;; NORTH ROUTE
+        set route "north"
+        set waypoints (list
+          (list 5  29)
+          (list -2 11) 
+          (list 0 0)
+        )
+      ] [
+        ;; SOUTH ROUTE
+        set route "south"
+        set waypoints (list
+          (list -2 -40)
+          (list -27 -30)
+          (list 0 0)
+        )
+      ] 
+    ]
+    
+    ;; optional coloring to see the waypoints ;; MOVE THIS!!!
+    if show-waypoints? [
+      foreach waypoints [ w ->
+        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+      ]
+    ]
+    
     set color violet
     set size 0
     set speed (10 / 60) * minutes-per-tick / km-per-patch ;; a little less than 15 knots
@@ -56,15 +73,50 @@ to setup-amphib-flotilla
       set color brown
 
       set w-i 0
-      set waypoints (list
-        (list -2 11) 
-        (list -2 9)
-        (list  3 7))
+      
+      ifelse spawn-zone = "zone-5" [
+        set state "approach"
+        if ycor >= 11 [ ;; 5T
+          set waypoints (list
+            (list -2 11)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+        if ycor >= -14 [ ;; 5M
+          set waypoints (list 
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+        if ycor < -14 [ ;; 5B
+          set waypoints (list 
+            (list -20 -14)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+      ] [
+        ifelse [route] of myself = "north" [
+          set waypoints (list
+            (list -2 11)
+            (list -2 9)
+            (list 3 7)
+          )
+        ] [
+          set waypoints (list 
+            (list -27 -30)
+            (list -20 -14)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+      ]
 
       ;; optional coloring to see the waypoints
       if show-waypoints? [
         foreach waypoints [ w ->
-          ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+          ask patch (item 0 w) (item 1 w) [ set pcolor magenta ]
         ]
       ]
       
@@ -78,7 +130,7 @@ end
 
 to move-flotillas
   ask flotillas [
-    if state != "landed" [
+    if state != "posted" [
       if flotilla-type = "amphib" [
         set next-wp (item w-i waypoints)
         let phase-wp (item (length waypoints - 1) waypoints)
@@ -89,16 +141,16 @@ to move-flotillas
         ][ 
           set w-i w-i + 1 
           if w-i >= length waypoints [
-            set state "landed"
+            set state "posted"
           ]
         ] 
       
-        if state != "landed" [
+        if state != "posted" [
           ifelse w-i = (length waypoints - 2) [ 
             set state "phase3" 
           ][
             ifelse w-i = (length waypoints - 1) [ 
-              set state "landed"
+              set state "posted"
             ][
               if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
                 set hermes-cap? 8

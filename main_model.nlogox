@@ -269,7 +269,7 @@ end
     <monitor x="170" precision="17" y="445" height="60" fontSize="11" width="100" display="Conflict Days">conflict-days</monitor>
     <switch x="130" y="50" height="40" on="true" variable="show-waypoints?" width="135" display="show-waypoints?"></switch>
     <switch x="270" y="50" height="40" on="true" variable="show-caps?" width="100" display="show-caps?"></switch>
-    <chooser x="160" y="160" height="60" variable="spawn-zone" current="4" width="250" display="spawn-zone">
+    <chooser x="160" y="160" height="60" variable="spawn-zone" current="2" width="250" display="spawn-zone">
       <choice type="string" value="zone-1"></choice>
       <choice type="string" value="zone-2"></choice>
       <choice type="string" value="zone-3"></choice>
