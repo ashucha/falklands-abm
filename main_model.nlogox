@@ -4,10 +4,17 @@
   "utils/datetime.nls"
   "utils/distances.nls"
   "utils/events.nls"
+  "utils/map_setup.nls"
   "turtles/shars/shar_model.nls" 
-  "turtles/carriers/carrier_model.nls"  
+  "turtles/carriers/carrier_model.nls" 
+  "turtles/frigates/frigates_model.nls"
+  "turtles/destroyers/destroyer_model.nls"
+  "turtles/amphibs/amphib_model.nls"
+  "turtles/flotillas/flotilla_model.nls"
+  "turtles/faa/faa_model.nls"
 ]
 
+;; hi
 globals [ 
   ocean-color ocean-offset
   
@@ -17,11 +24,20 @@ globals [
   conflict-days
   event-list
   
+  ;; carrier spawn zone
+  spawn-patch
+  
   ;; using these for plotting
   attacks 
   intercepts 
   failures 
   faa-jets
+  faa-losses
+  amphibs-landed
+  carriers-hit ;; added by grace
+  frigates-hit
+  destroyers-hit
+  amphibs-hit
   
   ;; constants for the shars
   shar-cruise-speed shar-max-speed shar-cruise-burn shar-max-burn shar-vis-range aim9l-range aim9l-pkill
@@ -30,34 +46,86 @@ globals [
   ;; constants for the carriers
   carrier-alert-dist
   shar-launch-int
+  
+  ;; constants for the FAA
+  dagger-max-speed dagger-cruise-speed dagger-range
+  skyhawk-max-speed skyhawk-cruise-speed skyhawk-range
+  sue-max-speed sue-cruise-speed sue-range
+  bomb-range exocet-range
+
+  ;; harness inputs/state
+  trial-id
+  trial-seed
+  faa-loss-threshold
+  naval-trial-done?
+  ground-trial-started?
+  air-battle-end-string
+  ground-battle-start-string
+  initial-amphib-count
+  
 ] 
+
+;; set up ocean patch
+patches-own [ ocean? zone ]   ;; is what zone is it in?
 
 ;; setting up the types of turtles <plural name> <singular name>
 breed [ carriers carrier ]
+breed [ events event ]
+breed [ ships ship ] 
+breed [ frigates frigate ]
+breed [ destroyers destroyer ]
+breed [ amphibs amphib ]
 breed [ shars shar ]
 breed [ daggers dagger ]
-breed [ events event ]
+breed [ faas faa ]
+breed [ flotillas flotilla ]
+undirected-link-breed [ target-links target-link ]
+
 ;; all turtles have these variables (really coarse-grained inheritance)
-turtles-own [ strength state speed ]
+turtles-own [ strength state speed waypoints w-i ]
 
 ;; only breeds have these variables
-daggers-own [ bombs launch aircraft ]
+daggers-own [ bombs launch aircraft ]  
+  
 
 ;; initializes everything
 to setup
-  clear-all  
+  ;clear-all
+
+  if trial-id = 0 [ set trial-id -1 ]
+  if trial-seed = 0 [ set trial-seed 20260402 ]
+  if faa-loss-threshold = 0 [ set faa-loss-threshold 25 ] ;; default is 25 if faa-loss-threshold not set by harness
+  random-seed trial-seed
+  
+  setup-map
+  draw-x-limits
+  
+;   show count patches with [ zone = "zone-1" and ocean? ]
+
+  
   ;; initializes global variables
   set ocean-color 96.5
   set ocean-offset 0.5
   set attacks 0
   set intercepts 0
   set failures 0
-  set faa-jets 99
+  set faa-jets 75
+  set faa-losses 0
+;   set faa-loss-threshold 25
+  set amphibs-landed 0
+  set carriers-hit 0
+  set frigates-hit 0
+  set destroyers-hit 0
+  set amphibs-hit 0
+  set naval-trial-done? false
+  set ground-trial-started? false
+  set air-battle-end-string ""
+  set ground-battle-start-string ""
   
   set cur-min 0
   set cur-hour 0
-  set cur-day 2
-  set cur-month 4  ;; April
+  set cur-day 21
+  set cur-month 5
   set cur-year 1982
   set conflict-days 0
   update-date-string
@@ -65,29 +133,102 @@ to setup
   setup-events
   
   ;; initialize patches
-  resize-world -100 250 -100 100
-  ask patches [ set pcolor ocean-color + random-float ocean-offset ]
-  ask patch 0 0 [ set pcolor blue ]
+;   ask patches [ set pcolor ocean-color + random-float ocean-offset ]
+;   ask patch 0 0 [ set pcolor blue ]
   ask patch (floor nmi-to-patches 200) 0 [ set pcolor red ]
   
   setup-carriers
+  setup-flotillas
+  setup-frigates
+  setup-destroyers
+;   setup-amphibs
   setup-shars
+  setup-faa-constants
+  set initial-amphib-count count amphibs
+  
+  ;; CAP labels
+  if show-caps? [
+    let i 1
+    while [i < length shar-cap-list] [
+      let c item i shar-cap-list
+      create-turtles 1 [
+        setxy (item 0 c) (item 1 c)
+        set size 0
+        set label word i "    "
+      ]
+      set i i + 1
+    ]
+  ]
+  
+  ;; VERY visible red test marker at 200 nmi reference
+  create-turtles 1 [
+    setxy (floor nmi-to-patches 200) 0
+    set shape "dot"
+    set color red
+    set size 6
+  ]
+  
   
   reset-ticks
 end
 
+to-report end-condition
+  let faa-low? (faa-losses >= faa-loss-threshold)
+  let amphibs-complete? (amphibs-landed + amphibs-hit >= 10)
+  let carrier-hit? (count carriers = 1)
+
+  report (carrier-hit? or (faa-low? and amphibs-complete?))
+end
+
 ;; this is the core loop that runs all of the turtles' logic each tick
 to go
+  if count carriers = 1 [ 
+    error (word "carrier hit: " current-date-string) ; throws an error to stop execution and ensure the error message is logged in the CSV whereas nothing else is
+    stop 
+  ]
+  if naval-trial-done? and ground-trial-started? [ 
+    stop
+  ]
   advance-time minutes-per-tick
   update-date-string
   check-events
+  move-flotillas
+  move-amphibs
   move-carriers
+  move-frigates
+  move-destroyers
   move-shars
-  move-daggers
-  spawn-dagger?
-  ;spawn-target?
+  move-faas
+  spawn-faa?
   ask carriers [ spawn-shars? ]
+  ask frigates [ execute-logic ]
+  ask destroyers [ execute-logic-destroyer ]
+  maybe-mark-ground-battle-start
+  maybe-end-air-battle
   tick
+end
+
+to maybe-mark-ground-battle-start
+  if ground-battle-start-string = "" and initial-amphib-count > 0 [
+    if amphibs-landed = initial-amphib-count - amphibs-hit [
+      set ground-trial-started? true
+      set ground-battle-start-string current-date-string
+      show (word "ground battle start: " ground-battle-start-string)
+      show (word "amphibs-landed: " amphibs-landed ", amphibs-hit: " amphibs-hit)
+    ]
+  ]
+end
+
+to maybe-end-air-battle
+  if faa-losses >= faa-loss-threshold [
+    if air-battle-end-string = "" [
+      set air-battle-end-string current-date-string
+    ]
+    set naval-trial-done? true
+    ;show (word "ended air battle: " air-battle-end-string)
+    ;show (word "faa-losses: " faa-losses ", threshold: " faa-loss-threshold)
+    ;show (word "Boats: " get-ship-coords)
+  ]
 end
 
 ;; Generic RNG function
@@ -96,102 +237,72 @@ to-report RNG [ p ]
   ifelse random-float 1.0 < probability [ report true ][ report false ]
 end
 
-to launch-daggers
-  set attacks attacks + 1
-  create-daggers 1 [
-    set shape "dagger-5"
-    set size 4
-    set color 13 + random-float 3
-    let n 3 + random 2
-    set aircraft n-values n [ "strike" ]
-    ifelse random 2 > 1 [ ;; spawn daggers only on the edge of the world, not in the middle, spawn top
-      ;set launch (list (random-float (max-pxcor - min-pxcor) + min-pxcor) max-pycor)
-      set launch (list (50 - random 50) max-pycor)
-    ] [ ;; spawn right
-      ;set launch (list max-pxcor (random-float (max-pycor - min-pycor) + min-pycor))
-      set launch (list min-pxcor (50 - random 100))
-    ]
-    setxy (item 0 launch) (item 1 launch)
-    set state "ingress"
-    set speed 1.1
-  ]
+to-report get-ship-coords
+  let destroyer-coords [ (list xcor ycor) ] of destroyers
+  let frigate-coords [ (list xcor ycor) ] of frigates
+  let ship-coords sentence destroyer-coords frigate-coords
+  report ship-coords
 end
 
-to move-daggers
-  ask daggers [
-    ;; get stimuli
-    let nearest-carrier min-one-of carriers [ distance myself ]
-    if state = "ingress" [ ;; make an attack run with a random heading
-      ;if distance nearest-carrier < 5 [ face nearest-carrier ]
-      face nearest-carrier
-      if distance nearest-carrier < speed [ ;; attack successful! attempt to return to the launch point
-        ;;move-to nearest-carrier
-        set failures failures + 1
-        set state "egress"
-      ]
-    ]
-    if state = "engage" [ ;; note: both shars and daggers have an engagement state, gotta manage both sides of the engagement
-      set speed 0
-    ]
-    if state = "egress" [
-      face patch (item 0 launch) (item 1 launch)
-      if patch-here = patch (item 0 launch) (item 1 launch) [ ;; launch point reached, disappear by "landing"
-        die 
-      ]
-    ]
-    
-    forward speed
-    
-    ;; UI stuff
-    ifelse show-stat? [
-      if shar-stat? = "state" [ set label state ]
-    ] [ set label "" ]
-  ]
-end
 
-;; a reporter is just a procedure that returns a value
-to-report contact-daggers? [ dr ]
-  let detect-range dr
-  let nearest-dagger min-one-of daggers [ distance myself ]
-  if nearest-dagger != nobody [
-    if distance nearest-dagger < detect-range [ report nearest-dagger ]
-  ]
-  report nobody
-end
-
-;; generates a new FAA attack formation every 100 ticks
-to spawn-dagger?
-  if (ticks + 50)  mod 100 = 0 [
-    launch-daggers
-  ]
-end 
-
-;; used to demo the shar airstrike functionality
-to spawn-target?
-  if ticks mod 33 = 0 [
-    ask patch random-xcor random-ycor [ set pcolor yellow ]
-  ]
-end]]></code>
+]]></code>
   <widgets>
-    <view x="15" wrappingAllowedX="false" y="345" frameRate="30.0" minPycor="-100" height="840" showTickCounter="true" patchSize="2.07" fontSize="10" wrappingAllowedY="false" width="1460" tickCounterLabel="ticks" maxPycor="100" updateMode="1" maxPxcor="250" minPxcor="-100"></view>
+    <view x="425" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-100" height="840" showTickCounter="true" patchSize="2.07" fontSize="10" wrappingAllowedY="false" width="1460" tickCounterLabel="ticks" maxPycor="100" updateMode="1" maxPxcor="250" minPxcor="-100"></view>
     <button x="70" y="5" height="40" disableUntilTicks="true" forever="true" kind="Observer" width="55">go</button>
-    <slider x="365" step="1" y="5" max="100" width="250" display="minutes-per-tick" height="50" min="0" direction="Horizontal" default="1.0" variable="minutes-per-tick" units="min"></slider>
-    <slider x="365" step="1" y="60" max="20" width="250" display="km-per-patch" height="50" min="0" direction="Horizontal" default="2.0" variable="km-per-patch"></slider>
-    <monitor x="620" precision="17" y="5" height="60" fontSize="11" width="155" display="Date">current-date-string</monitor>
-    <monitor x="780" precision="17" y="5" height="60" fontSize="11" width="100" display="Conflict Days">conflict-days</monitor>
     <switch x="10" y="50" height="40" on="true" variable="show-stat?" width="115" display="show-stat?"></switch>
-    <chooser x="130" y="5" height="61" variable="shar-stat?" current="2" width="143" display="shar-stat?">
+    <button x="10" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
+    <chooser x="10" y="95" height="61" variable="shar-stat?" current="2" width="143" display="shar-stat?">
       <choice type="string" value="fuel"></choice>
       <choice type="string" value="missiles"></choice>
       <choice type="string" value="state"></choice>
       <choice type="string" value="mission"></choice>
     </chooser>
-    <chooser x="130" y="70" height="61" variable="carrier-stat?" current="1" width="143" display="carrier-stat?">
+    <chooser x="10" y="159" height="61" variable="carrier-stat?" current="1" width="143" display="carrier-stat?">
       <choice type="string" value="name"></choice>
       <choice type="string" value="shars"></choice>
     </chooser>
-    <button x="10" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
-    <plot x="885" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="count" y="5" xMin="0.0" height="320" legend="true" xMax="10.0" yMin="0.0" width="505" xAxis="time" display="Air Cover Performance">
+    <slider x="10" step="1" y="225" max="100" width="250" display="minutes-per-tick" height="50" min="0" direction="Horizontal" default="1.0" variable="minutes-per-tick" units="min"></slider>
+    <slider x="10" step="1" y="389" max="10" width="251" display="invincible-cap?" height="50" min="1" direction="Horizontal" default="10.0" variable="invincible-cap?"></slider>
+    <slider x="10" step="1" y="335" max="10" width="251" display="hermes-cap?" height="50" min="1" direction="Horizontal" default="8.0" variable="hermes-cap?"></slider>
+    <slider x="10" step="1" y="279" max="20" width="250" display="km-per-patch" height="50" min="0" direction="Horizontal" default="2.0" variable="km-per-patch"></slider>
+    <monitor x="10" precision="17" y="445" height="60" fontSize="11" width="155" display="Date">current-date-string</monitor>
+    <monitor x="170" precision="17" y="445" height="60" fontSize="11" width="100" display="Conflict Days">conflict-days</monitor>
+    <switch x="130" y="50" height="40" on="true" variable="show-waypoints?" width="135" display="show-waypoints?"></switch>
+    <switch x="270" y="50" height="40" on="true" variable="show-caps?" width="100" display="show-caps?"></switch>
+    <chooser x="160" y="160" height="60" variable="spawn-zone" current="2" width="250" display="spawn-zone">
+      <choice type="string" value="zone-1"></choice>
+      <choice type="string" value="zone-2"></choice>
+      <choice type="string" value="zone-3"></choice>
+      <choice type="string" value="zone-4"></choice>
+      <choice type="string" value="zone-5"></choice>
+      <choice type="string" value="TEZ-edge-zone"></choice>
+    </chooser>
+    <plot x="420" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="count" y="865" xMin="0.0" height="245" legend="true" xMax="10.0" yMin="0.0" width="400" xAxis="time" display="UK Boats Hit">
+      <setup></setup>
+      <update></update>
+      <pen interval="1.0" mode="0" display="Frigates Hit" color="-16777216" legend="true">
+        <setup></setup>
+        <update>plot frigates-hit</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Destroyers Hit" color="-7500403" legend="true">
+        <setup></setup>
+        <update>plot destroyers-hit</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Amphibs Hit" color="-2674135" legend="true">
+        <setup></setup>
+        <update>plot amphibs-hit</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Carriers Hit" color="-955883" legend="true">
+        <setup></setup>
+        <update>plot carriers-hit</update>
+      </pen>
+    </plot>
+    <monitor x="850" precision="17" y="865" height="60" fontSize="11" width="100" display="UK Boats Hit">frigates-hit + destroyers-hit + amphibs-hit + carriers-hit</monitor>
+    <monitor x="965" precision="17" y="865" height="60" fontSize="11" width="100" display="Carriers Hit">carriers-hit</monitor>
+    <monitor x="965" precision="17" y="940" height="60" fontSize="11" width="100" display="Frigates Hit">frigates-hit</monitor>
+    <monitor x="965" precision="17" y="1010" height="60" fontSize="11" width="100">destroyers-hit</monitor>
+    <monitor x="965" precision="17" y="1080" height="60" fontSize="11" width="100">amphibs-hit</monitor>
+    <plot x="10" autoPlotX="true" yMax="10.0" autoPlotY="true" yAxis="count" y="511" xMin="0.0" height="320" legend="true" xMax="10.0" yMin="0.0" width="410" xAxis="time" display="Air Cover Performance">
       <setup></setup>
       <update></update>
       <pen interval="1.0" mode="0" display="FAA Attacks" color="-13840069" legend="true">
@@ -208,11 +319,17 @@ end]]></code>
       </pen>
       <pen interval="1.0" mode="0" display="# FAA Jets" color="-817084" legend="true">
         <setup></setup>
-        <update>plot faa-jets</update>
+        <update>plot (faa-jets - faa-losses)</update>
+      </pen>
+      <pen interval="1.0" mode="0" display="Amphibs Landed" color="-10402772" legend="true">
+        <setup></setup>
+        <update>plot amphibs-landed</update>
       </pen>
     </plot>
-    <slider x="365" step="1" y="115" max="10" width="251" display="hermes-cap?" height="50" min="1" direction="Horizontal" default="9.0" variable="hermes-cap?"></slider>
-    <slider x="365" step="1" y="169" max="10" width="251" display="invincible-cap?" height="50" min="1" direction="Horizontal" default="10.0" variable="invincible-cap?"></slider>
+    <monitor x="10" precision="17" y="846" height="60" fontSize="11" width="100" display="FAA Sorties Launched">attacks</monitor>
+    <monitor x="116" precision="17" y="846" height="60" fontSize="11" width="100" display="FAA losses">faa-losses</monitor>
+    <monitor x="10" precision="17" y="910" height="60" fontSize="11" width="100" display="FAA Jets Left">faa-jets - faa-losses</monitor>
+    <monitor x="275" precision="17" y="445" height="60" fontSize="11" width="101" display="Seed">trial-seed</monitor>
   </widgets>
   <info>## WHAT IS IT?
 
@@ -1305,4 +1422,54 @@ end]]></code>
     </shape>
   </linkShapes>
   <previewCommands>setup repeat 75 [ go ]</previewCommands>
+  <experiments>
+    <experiment name="experiment" repetitions="3" sequentialRunOrder="true" runMetricsEveryStep="true">
+      <setup>setup</setup>
+      <go>go</go>
+      <metrics>
+        <metric>faa-losses</metric>
+        <metric>carriers-hit</metric>
+        <metric>frigates-hit</metric>
+        <metric>destroyers-hit</metric>
+        <metric>amphibs-hit</metric>
+        <metric>cur-day</metric>
+        <metric>cur-hour</metric>
+        <metric>cur-min</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="spawn-zone">
+          <value value="&quot;zone-1&quot;"></value>
+          <value value="&quot;zone-2&quot;"></value>
+          <value value="&quot;zone-3&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="minutes-per-tick">
+          <value value="1"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="hermes-cap?">
+          <value value="8"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-caps?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="km-per-patch">
+          <value value="2"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="invincible-cap?">
+          <value value="10"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="carrier-stat?">
+          <value value="&quot;shars&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-stat?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="shar-stat?">
+          <value value="&quot;state&quot;"></value>
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="show-waypoints?">
+          <value value="true"></value>
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
+  </experiments>
 </model>

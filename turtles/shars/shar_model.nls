@@ -11,11 +11,13 @@ to setup-shars
   set shar-max-burn   27.65 * minutes-per-tick ;; 1660/60=27.65  imp gal/min -> units: fuel per tick
   
   ;; ranges
-  set shar-vis-range nmi-to-patches 6 ;; 6nmi -> units: patches
+  ;; set shar-vis-range nmi-to-patches 6 ;; 6nmi -> units: patches
+  set shar-vis-range nmi-to-patches 3 ;; grace tuned
   set aim9l-range    nmi-to-patches 1 ;; 1nmi -> units: patches
   
   ;; probabilities
-  set aim9l-pkill 0.7273
+  ;; set aim9l-pkill 0.7273
+  set aim9l-pkill 0.3
   
 end
 
@@ -25,7 +27,7 @@ to move-shars
     ;; get stimuli
     let bc base-carrier
     let my-carrier one-of carriers with [name = bc]
-    let target-dagger contact-daggers? shar-vis-range;;min-one-of daggers [ distance myself ]
+    let target-dagger contact-faas? shar-vis-range;;min-one-of daggers [ distance myself ]
     
     ;; logic: decisions and actions, depends on state. Order matters here. 
     ;;        I couldn't decide between a chain of if statements and nested if statements.
@@ -150,12 +152,22 @@ to-report is-bingo?
 end
   
 ;; Launch AIM9L, see if it got a kill, report the number of kills, up to 2
+;;to-report try-faa-kill 
+;;  let kills 0
+;;  repeat num-flight [
+;;    set missiles missiles - 1
+;;    if RNG aim9l-pkill [ set kills kills + 1 ] 
+;;  ]
+;;  set faa-jets faa-jets - kills
+;;  report kills
+;;end
+
 to-report try-faa-kill 
   let kills 0
   repeat num-flight [
     set missiles missiles - 1
     if RNG aim9l-pkill [ set kills kills + 1 ] 
   ]
-  set faa-jets faa-jets - kills
+  set faa-losses faa-losses + kills
   report kills
 end

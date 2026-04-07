@@ -1,152 +1,741 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.3" snapToGrid="true">
-  <code><![CDATA[__includes [ 
+  <code><![CDATA[__includes [
   "utils/datetime.nls"
-  "turtles/british_ground/ground_model.nls"
+  "utils/test_harness.nls"
+  "turtles/ground/argentine_model.nls"
+  "turtles/ground/british_model.nls"
+  "turtles/ground/ngfs_model.nls"
 ]
 
-globals [ 
-  current-date-string
-  start-time
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; VARIABLES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+globals [
+  ;; Trial Metadata
+  trial-id
+  trial-seed-ground           ;; separate seed for ground battle RNG
+  
+  ;; DateTime Tracking (from utils/datetime.nls)
   cur-min cur-hour cur-day cur-month cur-year
-  conflict-days
+  current-date-string
   
-  ;; ground war metrics
-  british-casualties
-  argentine-casualties
-  defenses-destroyed
-  targets-captured
+  ;; Harness Inputs (DataClass GroundInputs)
+  ground-battle               ;; str: start date (e.g., "May 21 1982 - 00:00")
+  air-battle-end              ;; str: when air battle ended (constrains unit spawning)
+  amphibs-landed              ;; int: determines the number of british troops to spawn
+  ship-coords                 ;; str: JSON-like string of ship coordinates
   
-  ;; NOTE: the sliders on the interface automatically create globals
-  ;; for the adjustable counts, so they must not be listed here or
-  ;; NetLogo will complain about duplicate globals.  The variables are
-  ;; still used elsewhere (e.g. in setup-ground) but their declaration
-  ;; is managed by the widgets.
-] 
+  ;; Harness Outputs (DataClass GroundOutputs)
+  ground-battle-end           ;; str: end date string
+  conflict-days               ;; float: duration in days
+  british-kia                 ;; int: total British killed
+  argentine-kia               ;; int: total Argentine killed
+;   also surrenders-total from Analytics: Troop Outcomes (below)
+  
+  ;; Internal Metadata & Tracking
+  ground-battle-start-string  ;; intermediate storage for parsed start
+  
+  ;; Naval Gunfire Support (based on remaining ships from air battle)
+  ngfs-enabled?
+  ngfs-base-fire-interval     ;; base interval when all ships present
+  ngfs-dispersion-radius
+  ngfs-mode   
+  ngfs-ship-range             ;; range per ship (15 patches)
+  ngfs-last-fire-tick
+  
+  ;; Ship Availability (input from air battle outcomes)
+  destroyers-remaining-input  ;; deprecated, kept for safety
+  frigates-remaining-input    ;; deprecated, kept for safety
+  ships-alive                 ;; list of ship IDs still active
+  ships-data                  ;; ship metadata: [id x y destruction-datetime-string]
+  
+  ;; Configuration: Damage & Effects
+  trench-damage-mult
+  bunker-damage-mult
+  bunker-suppression-mult
+  ngfs-suppression-ticks
 
-;; setting up the types of turtles <plural name> <singular name>
-;; ground force breeds
-breed [ regular-infantries regular-infantry ]
-breed [ royal-marines royal-marine ]
-breed [ special-forces special-force ]
-breed [ conscripts conscript ]
-breed [ arg-elites arg-elite ]
+  ;; Configuration: Bunkers & Units
+  bunker-mode
+  bunker-default-capacity
 
-;; all turtles have these variables
-turtles-own [ state speed ]
+  ;; Configuration: Simulation Controls
+  suppression-enabled?
+  surrender-enabled?
+  show-heatmap?
+  historical-spawn?           ;; if true, spawn Argentine units at historical positions
 
-;; initializes everything
+  ;; State: NGFS Runtime
+  ngfs-strikes
+  ngfs-total-damage
+  ngfs-total-kills
+  ngfs-last-strike-x
+  ngfs-last-strike-y
+  ngfs-open-exposures
+  ngfs-trench-exposures
+  ngfs-bunker-exposures
+
+  ;; Analytics: Bunkers & Casualties
+  bunkers-destroyed
+  bunker-entries-total
+
+  ;; Analytics: Troop Outcomes
+  surrenders-total
+  arg-strength-loss-total
+  panic-events-total
+  suppression-events-total
+
+  ;; Analytics: Casualties (tracked for test harness output)
+  british-casualties          ;; total British units killed
+  argentine-casualties        ;; total Argentine units killed
+
+  ;; Debug: track max ticks-stuck ever seen
+  debug-max-stuck
+  debug-escape-count
+  
+  ;; Output CSV
+  results-file
+  trial-exported?             ;; flag to track if results have been exported for this trial
+  
+  ;; Troop Tracking
+  british-battalions-spawned  ;; count of British units that actually spawned
+]
+
+patches-own [
+  ;; Terrain
+  elevation-level
+  water?
+  base-pcolor
+
+  ;; Fortifications
+  bunker?
+  trench?
+  bunker-strength
+  bunker-capacity
+
+  ;; NGFS Tracking
+  strike-count
+  ngfs-flash-ticks
+]
+
+breed [argentine-troops argentine-troop]
+breed [british-troops british-troop]
+
+turtles-own [
+  ;; Combat Stats
+  strength
+  morale
+
+  ;; Cover State
+  entrenched?
+  in-bunker?
+  bunker-target
+
+  ;; Combat Engagement
+  engagement-target
+
+  ;; Behavioral State
+  suppressed-ticks
+  panic-move?
+]
+
+british-troops-own [
+  ;; Movement & Combat Profile
+  mobility
+  lethality
+  engagement-distance
+  max-accuracy-distance
+  invulnerability
+  unit-type
+
+  ;; Behavioral State
+  status
+  retreat-threshold
+
+  ;; Pathfinding
+  ticks-stuck
+  recent-patches  ;; list of patches visited in last 3 ticks (breadcrumb)
+]
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SETUP
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 to setup
-  clear-all  
-  ;; initialize ground metrics
-  set british-casualties 0
-  set argentine-casualties 0
-  set defenses-destroyed 0
-  set targets-captured 0
+  ;clear-all
   
-  ;; default counts
-  set british-unit-count 2
-  set argentine-unit-count 4
-  set british-regular-count 40
-  set british-marines-count 10
-  set british-sas-count 6
-  set argentine-conscripts-count 80
-  set argentine-elites-count 20
+  ;; Seed RNG per trial (use trial-seed-ground if set, else trial-id)
+  if not is-number? trial-seed-ground [ set trial-seed-ground trial-id ]
+  random-seed trial-seed-ground
+
+  ;; Parse ground battle start datetime (format: "May 21 1982 - 00:00")
+  parse-ground-battle-start-date
   
-  set cur-min 0
-  set cur-hour 0
-  set cur-day 2
-  set cur-month 4  ;; April
-  set cur-year 1982
+  ;; Initialize conflict tracking
   set conflict-days 0
   update-date-string
   
-  ;; initialize patches - make the entire grid green for the island
-  ask patches [ set pcolor green ]
+  ;; Initialize analytics counters and dummy data (must run before ship initialization)
+  initialize-global-state
   
-  setup-ground  ;; spawn and initialize ground troops
+  ;; Initialize ship availability from air battle outcomes (or fallback to dummy data)
+  initialize-ships-from-air-battle
+  
+  ;; Initialize terrain and fortifications
+  initialize-patch-state
+  
+  ;; Spawn troops based on available units
+  initialize-troop-state
   
   reset-ticks
 end
 
-;; main simulation loop
-to go
-  ;; check if simulation should end
-  if count (turtle-set regular-infantries royal-marines special-forces) = 0 or count (turtle-set conscripts arg-elites) = 0 [
-    stop
+to initialize-global-state
+  ;; Configuration: Damage & Effects (initialize if not set)
+  if not is-number? trench-damage-mult [ set trench-damage-mult 0.5 ]
+  if not is-number? bunker-damage-mult [ set bunker-damage-mult 0.3 ]
+  if not is-number? bunker-suppression-mult [ set bunker-suppression-mult 2.0 ]
+  if not is-number? ngfs-suppression-ticks [ set ngfs-suppression-ticks 5 ]
+  
+  ;; Configuration: Simulation Controls (initialize booleans)
+  if suppression-enabled? != true and suppression-enabled? != false [ set suppression-enabled? true ]
+  if surrender-enabled? != true and surrender-enabled? != false [ set surrender-enabled? true ]
+  if show-heatmap? != true and show-heatmap? != false [ set show-heatmap? false ]
+  if historical-spawn? != true and historical-spawn? != false [ set historical-spawn? true ]
+  
+  ;; NGFS runtime state
+  set ngfs-last-fire-tick 0
+
+  ;; Analytics: NGFS
+  set ngfs-strikes 0
+  set ngfs-total-damage 0
+  set ngfs-total-kills 0
+  set ngfs-last-strike-x 0
+  set ngfs-last-strike-y 0
+  set ngfs-open-exposures 0
+  set ngfs-trench-exposures 0
+  set ngfs-bunker-exposures 0
+
+  ;; Analytics: Bunkers & Casualties
+  set bunkers-destroyed 0
+  set bunker-entries-total 0
+
+  ;; Analytics: Troop Outcomes
+  set surrenders-total 0
+  set arg-strength-loss-total 0
+  set panic-events-total 0
+  set suppression-events-total 0
+
+  ;; Analytics: British Casualties
+  set british-casualties 0
+  
+  ;; CSV Export tracking
+  set trial-exported? false
+
+  ;; NGFS Ship Data — dummy positions for ship-based targeting
+  set ships-data [
+    [1 -16 6]    ;; Ship 1 at west coast north
+    [2 -16 2]    ;; Ship 2 at west coast center
+    [3 16 6]     ;; Ship 3 at east coast north
+    [4 15 8]     ;; Ship 4 at northeast offshore
   ]
-  advance-time minutes-per-tick
+
+  ;; Debug trackers
+  set debug-max-stuck 0
+  set debug-escape-count 0
+  
+  ;; Close any stray file handles
+  carefully [ file-close-all ] []
+end
+
+to initialize-patch-state
+  import-pcolors "terrain_map.png"
+
+  ;; Initialize configuration defaults if not set
+  if bunker-mode != "historical" and bunker-mode != "random" [ set bunker-mode "historical" ]
+  if not is-number? bunker-default-capacity [ set bunker-default-capacity 1 ]
+
+  ask patches [
+    set base-pcolor pcolor
+    set bunker? false
+    set trench? false
+    set bunker-strength 0
+    set bunker-capacity 1
+    set water? false
+    set strike-count 0
+    set ngfs-flash-ticks 0
+    set plabel ""
+  ]
+
+  assign-elevation
+  classify-water
+  setup-bunkers
+  refresh-patch-visuals
+end
+
+to initialize-troop-state
+  ;; Only spawn Argentine troops (no specific spawn logic yet)
+  spawn-argentine-battalions
+  ask argentine-troops [
+    update-visual-state
+  ]
+  
+  ;; Spawn British troops, filtering by available battalions
+  if not is-number? amphibs-landed or amphibs-landed = 0 [ set amphibs-landed 10 ]
+  spawn-british-troops-filtered
+  
+  ;; Track how many British troops actually spawned (for kill count calculation)
+  set british-battalions-spawned count british-troops
+end
+
+to spawn-british-troops-filtered
+  ;; Five task forces land on the western coast (San Carlos area)
+  ;; Positions are scaled to the v2 world (-16 to 16)
+  ;; All units spawn (filtering by air battle is handled upstream)
+  
+  let initial-british-positions [
+    [-14  7]  ;; SBS (index 0)
+    [-12  6]  ;; 3 Para (index 1)
+    [-14  1]  ;; 40 Commando (index 2)
+    [-13 -1]  ;; 2 Para (index 3)
+    [-15  0]  ;; 45 Commando (index 4)
+    [-14  7]  ;; SBS (index 0)
+    [-12  6]  ;; 3 Para (index 1)
+    [-14  1]  ;; 40 Commando (index 2)
+    [-13 -1]  ;; 2 Para (index 3)
+    [-15  0]  ;; 45 Commando (index 4)
+  ]
+
+  let i amphibs-landed
+  foreach initial-british-positions [ pos ->
+    let px item 0 pos
+    let py item 1 pos
+    ifelse i < 1 [ stop ][ set i i - 1 ] ;; ensures troops are only spawned if their ship landed
+    
+    ;; If the target patch is water, find the nearest non-water alternative
+    let dest-patch patch px py
+    if [water?] of dest-patch [
+      set dest-patch min-one-of patches with [not water? and pxcor < -5] [
+        distancexy px py
+      ]
+    ]
+    
+    if dest-patch != nobody [
+      create-british-troops 1 [
+        move-to dest-patch
+        set color red
+        set size 2
+        set shape "default"
+
+        ;; Combat profile (SCALED FOR 84 TICKS)
+        set mobility            5
+        set lethality           7.5  ;; reduced from 30
+        set engagement-distance 7
+        set max-accuracy-distance 4
+        set invulnerability     0
+        set unit-type           "infantry"
+
+        ;; Behavioral state (turtles-own)
+        set strength            100
+        set morale              100
+        set entrenched?         false
+        set in-bunker?          false
+        set bunker-target       nobody
+        set engagement-target   nobody
+        set suppressed-ticks    0
+        set panic-move?         false
+
+        ;; Pathfinding
+        set ticks-stuck 0
+        set recent-patches []
+        set status              "advance"
+        set retreat-threshold   30
+      ]
+    ]
+  ]
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; TERRAIN
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to assign-elevation
+  ask patches [
+    if pcolor <= 20 [ set elevation-level 0 ]
+    if pcolor > 20 and pcolor <= 60 [ set elevation-level 1 ]
+    if pcolor > 60 [ set elevation-level 2 ]
+  ]
+end
+
+to classify-water
+  ask patches [
+    if pcolor = white or pcolor = black [
+      set water? true
+    ]
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BUNKERS (LIMITED TO 5)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to setup-bunkers
+
+  ask patches [
+    set bunker? false
+    set bunker-strength 0
+    set bunker-capacity bunker-default-capacity
+    set plabel ""
+  ]
+
+  ifelse bunker-mode = "historical" [
+    ;; Historical mode: place bunkers at fixed coordinates
+    let historical-bunker-coords [[10 2] [12 -4] [8 -8] [11 0] [9 -6]]
+    foreach historical-bunker-coords [ coord ->
+      let b-patch patch (item 0 coord) (item 1 coord)
+      if b-patch != nobody and not [water?] of b-patch [
+        ask b-patch [
+          set bunker? true
+          set bunker-strength 100
+          set bunker-capacity 1
+          set pcolor black
+          set plabel "B"
+          set plabel-color white
+        ]
+      ]
+    ]
+  ] [
+    ;; Random mode: select random high-ground patches in east
+    let candidates patches with [not water?]
+    if any? candidates [
+      ask n-of (min list 5 count candidates) candidates [
+        set bunker? true
+        set bunker-strength 100
+        set bunker-capacity 1
+        set pcolor black
+        set plabel "B"
+        set plabel-color white
+      ]
+    ]
+  ]
+
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; VISUALS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to refresh-patch-visuals
+  ask patches [
+
+    if ngfs-flash-ticks > 0 [
+      set pcolor red
+      set ngfs-flash-ticks ngfs-flash-ticks - 1
+    ]
+
+    if ngfs-flash-ticks = 0 [
+
+      if bunker? [
+        set pcolor black
+        set plabel "B"
+        set plabel-color white
+      ]
+
+      if trench? and not bunker? [
+        set pcolor brown
+        set plabel ""
+      ]
+
+      if not bunker? and not trench? [
+        if (is-boolean? show-heatmap? and show-heatmap?) and strike-count > 0 and not water? [
+          set pcolor scale-color red strike-count 0 20
+        ]
+        if not ((is-boolean? show-heatmap? and show-heatmap?) and strike-count > 0 and not water?) [
+          set pcolor base-pcolor
+        ]
+        set plabel ""
+      ]
+    ]
+  ]
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; COAST
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to-report is-coastal? [p]
+  let nearby [neighbors4] of p
+  report any? nearby with [water?]
+end
+
+to-report distance-to-coast [p]
+  let coast patches with [is-coastal? self]
+  if not any? coast [ report 999 ]
+  report min [distance p] of coast
+end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DATA EXPORT (CSV OUTPUT)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; ─────────────────────────────────────────────────────────────
+;; Export current battle results to CSV (call explicitly after trial ends)
+;; ─────────────────────────────────────────────────────────────
+to export-results
+  ;; User-callable wrapper for output-final-results
+  output-final-results
+end
+
+to output-final-results
+  ;; Write final battle results to CSV
+  ;; Following GroundOutputs dataclass: ground_battle_end, conflict_days, british_kia, argentine_kia
+  
+  ;; Set the specific harness output variables
+  set ground-battle-end current-date-string
+  set conflict-days (ticks * 0.125)
+  
+  set british-kia (british-battalions-spawned - count british-troops)
+  set argentine-kia ngfs-total-kills
+  
+  ;; Sync with result-line for CSV
+  let british-killed british-kia
+  let argentine-killed argentine-kia
+  let duration-days conflict-days
+  
+  ;; Outcome: 1 if British win (all Argentine dead), 0 otherwise
+  let outcome ifelse-value (not any? argentine-troops) [ 1 ] [ 0 ]
+  
+  ;; Argentine surrendered: already tracked
+  let argentine-surrendered surrenders-total
+  
+  ;; Write to results CSV
+  set results-file "output/battle_results.csv"
+  
+  ;; Build result line
+  let result-line (word
+    trial-id ","
+    ground-battle-start-string ","
+    ground-battle-end ","
+    duration-days ","
+    british-killed ","
+    argentine-killed ","
+    argentine-surrendered ","
+    outcome
+  )
+  
+  carefully [
+    ;; Read all existing content to memory
+    let existing-lines []
+    if file-exists? results-file [
+      file-open results-file
+      while [not file-at-end?] [
+        set existing-lines lput file-read-line existing-lines
+      ]
+      file-close
+    ]
+    
+    ;; Overwrite the file from scratch
+    if file-exists? results-file [ file-delete results-file ]
+    file-open results-file
+    
+    let header-row "trial_id,ground_battle_start,ground_battle_end,duration_days,british_killed,argentine_killed,argentine_surrendered,outcome"
+    
+    ;; Write header if it's a new file or doesn't have one
+    ifelse length existing-lines = 0 [
+      file-print header-row
+    ] [
+      ;; Write existing lines
+      foreach existing-lines [ line ->
+        file-print line
+      ]
+    ]
+    
+    ;; Append the new result
+    file-print result-line
+    file-close
+    
+    show (word "[CSV EXPORT] Results written to " results-file)
+  ] [
+    show (word "[CSV EXPORT ERROR] Failed to write to " results-file ". Check that output/ directory exists and is writable.")
+  ]
+  
+  show (word "[BATTLE COMPLETE] Trial " trial-id 
+    " | Duration: " duration-days " days"
+    " | British units killed: " british-killed
+    " | Argentine units killed: " argentine-killed
+    " | Argentine units surrendered: " argentine-surrendered
+    " | Outcome: " outcome)
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; COMMENTED OUT: Old diagnostic CSV export code
+;; ─────────────────────────────────────────────────────────────
+
+;; to write-snapshot-header
+;;   file-open export-file
+;;   file-print "tick,bunker_mode,ngfs_mode,range,interval,strikes,total_damage,total_kills,surrenders,total_strength_loss,troops_remaining,avg_strength,avg_morale,min_morale,troops_on_ridge,bunkers_remaining,bunkers_destroyed,trench_patches,troops_in_bunkers,troops_in_trenches,suppressed_troops,bunker_entries,panic_events,suppression_events,ngfs_open_exposures,ngfs_trench_exposures,ngfs_bunker_exposures,avg_detection_range,avg_hit_prob,last_x,last_y"
+;;   file-close
+;; end
+
+;; to write-event-header
+;;   file-open event-export-file
+;;   file-print "tick,event_type,event_x,event_y,event_value,bunker_mode,ngfs_mode,ngfs_range,ngfs_interval,total_strikes,total_kills,suppression_active,troops_remaining,arg_strength_avg"
+;;   file-close
+;; end
+
+;; to log-event [event-type event-x event-y event-value]
+;;   [COMMENTED OUT - no per-tick event logging needed]
+;; end
+
+;; to export-ngfs-data
+;;   [COMMENTED OUT - no per-tick snapshot export needed]
+;; end
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SHIP MANAGEMENT & NGFS SUPPORT
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to update-ship-status
+  ;; Check if any ships were destroyed at current tick
+  ;; ships-data format: [id x y destruction-datetime-string]
+  ;; For now, use a simplified check: if destruction datetime matches current date/time, remove ship
+  
+  ;; TODO: Parse destruction datetime and compare with current date/time
+  ;; For this iteration, assume destruction times are provided and we need to check them
+  ;; This is a placeholder for full datetime comparison logic
+end
+
+to-report get-living-ship-count
+  ;; Return count of ships still alive
+  report length ships-alive
+end
+
+to-report get-dynamic-ngfs-interval
+  ;; Base interval: ngfs-base-fire-interval
+  ;; Penalty: +2 ticks per lost ship from original complement (max 13)
+  let living-count get-living-ship-count
+  let dead-count (13 - living-count)
+  
+  let penalty dead-count * 2
+  report ngfs-base-fire-interval + penalty
+end
+
+to-report get-random-living-ship
+  ;; Return a random ship ID from ships-alive list, or nobody if none left
+  if length ships-alive = 0 [ report nobody ]
+  report one-of ships-alive
+end
+
+to-report get-ship-position [ship-id]
+  ;; Find ship in ships-data by ID and return [x y]
+  ;; Format: [id x y destruction-datetime-string]
+  foreach ships-data [ ship ->
+    if item 0 ship = ship-id [
+      report (list (item 1 ship) (item 2 ship))
+    ]
+  ]
+  report false
+end  
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; MAIN LOOP
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; ─────────────────────────────────────────────────────────────
+;; One tick of battle logic
+;; ─────────────────────────────────────────────────────────────
+to go-step
+  advance-time 90  ;; Advance 90 minutes (1.5 hours) per tick
   update-date-string
-  move-ground-forces
-  ground-combat
-  defenses-attack-ships
-  spawn-special-reinforcements?
+  update-ship-status
+  
+  refresh-patch-visuals
+  run-argentine-troops
+  run-british-troops
+  run-ngfs-phase
   tick
+end;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; BATTLE SIMULATION CONTROL
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; ─────────────────────────────────────────────────────────────
+;; Battle termination reporters
+;; ─────────────────────────────────────────────────────────────
+to-report ground-trial-done?
+  ;; Trial ends when either side has no remaining agents
+  if not any? british-troops   [ report true ]
+  if not any? argentine-troops [ report true ]
+  report false
 end
 
-to move-ground-forces
-  move-british-ground
-  move-argentine-ground
+to-report simulation-over?
+  ;; Alias for ground-trial-done? (for backward compatibility)
+  report ground-trial-done?
 end
 
-;; delegate movement to shared code implemented in ground_model.nls
-to move-british-ground
-  ask regular-infantries [ move-ground-unit ]
-  ask royal-marines      [ move-ground-unit ]
-  ask special-forces     [ move-ground-unit ]
+to-report british-win?
+  ;; Britain wins when no Argentine troops remain
+  report not any? argentine-troops
 end
 
-to move-argentine-ground
-  ask conscripts   [ move-ground-unit ]
-  ask arg-elites   [ move-ground-unit ]
-  ;; defenses and targets are static and handled in combat
+;; ─────────────────────────────────────────────────────────────
+;; Run one complete battle from start to finish
+;; ─────────────────────────────────────────────────────────────
+to run-battle
+  ;; setup has already been called
+  ;; Just loop until battle is over
+  while [not simulation-over?] [
+    go-step
+  ]
+  
+  ;; Battle complete — output results
+  output-final-results
 end
 
-;; close CDATA and reinsert interface widgets
-]]></code>
+;; ─────────────────────────────────────────────────────────────
+;; Main entry point (from NetLogo GUI or test harness)
+;; Test harness calls: while [not ground-trial-done?] [ go ]
+;; Automatically exports results when trial ends
+;; ─────────────────────────────────────────────────────────────
+to go
+  ;; Execute one tick of the battle
+  if not ground-trial-done? [
+    go-step
+  ]
+  
+  ;; Automatically export results when trial ends (works for both GUI and harness)
+  if ground-trial-done? and not trial-exported? [
+    output-final-results
+    set trial-exported? true
+  ]
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; COMMENTED OUT: Old Monte Carlo convergence procedures
+;; ─────────────────────────────────────────────────────────────
+
+;; to go-until-end
+;;   [COMMENTED OUT - now replaced with simpler run-battle]
+;; end
+
+;; to update-stats
+;;   [COMMENTED OUT - convergence tracking no longer needed]
+;; end
+
+;; to run-until-converged
+;;   [COMMENTED OUT - single battle per invocation now]
+;; end]]></code>
   <widgets>
-    <view x="368" y="10" wrappingAllowedX="false" frameRate="30.0" minPycor="-20" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="20" updateMode="1" maxPxcor="20" minPxcor="-20"></view>
-
-    <button x="10" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
-    <button x="70" y="5" height="40" disableUntilTicks="true" forever="true" kind="Observer" width="55">go</button>
-
-    <slider x="5" step="1" y="70" max="100" width="250" display="minutes-per-tick" height="50" min="0" direction="Horizontal" default="2.0" variable="minutes-per-tick" units="min"></slider>
-    <slider x="5" step="1" y="130" max="20" width="250" display="british-unit-count" height="50" min="1" direction="Horizontal" default="4.0" variable="british-unit-count" units="formations"></slider>
-    <slider x="5" step="1" y="190" max="120" width="250" display="british-regular-count" height="50" min="0" direction="Horizontal" default="70.0" variable="british-regular-count" units="infantry"></slider>
-    <slider x="5" step="1" y="250" max="40" width="250" display="british-marines-count" height="50" min="0" direction="Horizontal" default="18.0" variable="british-marines-count" units="marines"></slider>
-    <slider x="5" step="1" y="310" max="20" width="250" display="british-sas-count" height="50" min="0" direction="Horizontal" default="12.0" variable="british-sas-count" units="sas"></slider>
-    <slider x="5" step="1" y="370" max="20" width="250" display="argentine-unit-count" height="50" min="1" direction="Horizontal" default="8.0" variable="argentine-unit-count" units="formations"></slider>
-    <slider x="5" step="1" y="430" max="200" width="250" display="argentine-conscripts-count" height="50" min="0" direction="Horizontal" default="160.0" variable="argentine-conscripts-count" units="conscripts"></slider>
-    <slider x="5" step="1" y="490" max="60" width="250" display="argentine-elites-count" height="50" min="0" direction="Horizontal" default="35.0" variable="argentine-elites-count" units="elites"></slider>
-
-    <monitor x="815" precision="17" y="10" height="60" fontSize="11" width="155" display="Date">current-date-string</monitor>
-    <monitor x="975" precision="0" y="10" height="60" fontSize="11" width="100" display="Conflict Days">conflict-days</monitor>
-    <monitor x="815" precision="0" y="80" height="60" fontSize="11" width="155" display="Brit Cas">british-casualties</monitor>
-    <monitor x="975" precision="0" y="80" height="60" fontSize="11" width="155" display="Arg Cas">argentine-casualties</monitor>
-    <monitor x="815" precision="0" y="150" height="60" fontSize="11" width="155" display="Defs Dstr">defenses-destroyed</monitor>
-    <monitor x="975" precision="0" y="150" height="60" fontSize="11" width="155" display="Tgts Cap">targets-captured</monitor>
-
-    <plot x="815" autoPlotX="true" yMax="200.0" autoPlotY="true" yAxis="count" y="220" xMin="0.0" height="176" legend="true" xMax="200.0" yMin="0.0" width="315" xAxis="time" display="Ground Performance">
-      <setup></setup>
-      <update></update>
-      <pen interval="1.0" mode="0" display="Brit Cas" color="105" legend="true">
-        <setup></setup>
-        <update>plot british-casualties</update>
-      </pen>
-      <pen interval="1.0" mode="0" display="Arg Cas" color="15" legend="true">
-        <setup></setup>
-        <update>plot argentine-casualties</update>
-      </pen>
-      <pen interval="1.0" mode="0" display="Defs Dstr" color="65" legend="true">
-        <setup></setup>
-        <update>plot defenses-destroyed</update>
-      </pen>
-      <pen interval="1.0" mode="0" display="Tgts Cap" color="0" legend="true">
-        <setup></setup>
-        <update>plot targets-captured</update>
-      </pen>
-    </plot>
-</widgets>
+    <view x="368" wrappingAllowedX="false" y="10" frameRate="30.0" minPycor="-16" height="434" showTickCounter="true" patchSize="13.0" fontSize="10" wrappingAllowedY="false" width="434" tickCounterLabel="ticks" maxPycor="16" updateMode="0" maxPxcor="16" minPxcor="-16"></view>
+    <button x="5" y="5" height="40" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="setup">setup</button>
+    <button x="65" y="5" height="40" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="go">go</button>
+    <monitor x="5" precision="17" y="50" height="60" fontSize="11" width="150" display="Ground Start Date">ground-battle-start-string</monitor>
+    <monitor x="5" precision="17" y="115" height="60" fontSize="11" width="150" display="Current Date">current-date-string</monitor>
+  </widgets>
   <info>## WHAT IS IT?
 
 (a general understanding of what the model is trying to show or explain)
@@ -190,6 +779,805 @@ end
         <point x="40" y="250"></point>
         <point x="150" y="205"></point>
         <point x="260" y="250"></point>
+      </polygon>
+    </shape>
+    <shape name="airplane" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="0"></point>
+        <point x="135" y="15"></point>
+        <point x="120" y="60"></point>
+        <point x="120" y="105"></point>
+        <point x="15" y="165"></point>
+        <point x="15" y="195"></point>
+        <point x="120" y="180"></point>
+        <point x="135" y="240"></point>
+        <point x="105" y="270"></point>
+        <point x="120" y="285"></point>
+        <point x="150" y="270"></point>
+        <point x="180" y="285"></point>
+        <point x="210" y="270"></point>
+        <point x="165" y="240"></point>
+        <point x="180" y="180"></point>
+        <point x="285" y="195"></point>
+        <point x="285" y="165"></point>
+        <point x="180" y="105"></point>
+        <point x="180" y="60"></point>
+        <point x="165" y="15"></point>
+      </polygon>
+    </shape>
+    <shape name="arrow" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="0"></point>
+        <point x="0" y="150"></point>
+        <point x="105" y="150"></point>
+        <point x="105" y="293"></point>
+        <point x="195" y="293"></point>
+        <point x="195" y="150"></point>
+        <point x="300" y="150"></point>
+      </polygon>
+    </shape>
+    <shape name="box" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="285"></point>
+        <point x="285" y="225"></point>
+        <point x="285" y="75"></point>
+        <point x="150" y="135"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="135"></point>
+        <point x="15" y="75"></point>
+        <point x="150" y="15"></point>
+        <point x="285" y="75"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="15" y="75"></point>
+        <point x="15" y="225"></point>
+        <point x="150" y="285"></point>
+        <point x="150" y="135"></point>
+      </polygon>
+      <line endX="150" startY="285" marked="false" color="255" endY="135" startX="150"></line>
+      <line endX="15" startY="135" marked="false" color="255" endY="75" startX="150"></line>
+      <line endX="285" startY="135" marked="false" color="255" endY="75" startX="150"></line>
+    </shape>
+    <shape name="bug" rotatable="true" editableColorIndex="0">
+      <circle x="96" y="182" marked="true" color="-1920102913" diameter="108" filled="true"></circle>
+      <circle x="110" y="127" marked="true" color="-1920102913" diameter="80" filled="true"></circle>
+      <circle x="110" y="75" marked="true" color="-1920102913" diameter="80" filled="true"></circle>
+      <line endX="80" startY="100" marked="true" color="-1920102913" endY="30" startX="150"></line>
+      <line endX="220" startY="100" marked="true" color="-1920102913" endY="30" startX="150"></line>
+    </shape>
+    <shape name="butterfly" rotatable="true" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="165"></point>
+        <point x="209" y="199"></point>
+        <point x="225" y="225"></point>
+        <point x="225" y="255"></point>
+        <point x="195" y="270"></point>
+        <point x="165" y="255"></point>
+        <point x="150" y="240"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="165"></point>
+        <point x="89" y="198"></point>
+        <point x="75" y="225"></point>
+        <point x="75" y="255"></point>
+        <point x="105" y="270"></point>
+        <point x="135" y="255"></point>
+        <point x="150" y="240"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="139" y="148"></point>
+        <point x="100" y="105"></point>
+        <point x="55" y="90"></point>
+        <point x="25" y="90"></point>
+        <point x="10" y="105"></point>
+        <point x="10" y="135"></point>
+        <point x="25" y="180"></point>
+        <point x="40" y="195"></point>
+        <point x="85" y="194"></point>
+        <point x="139" y="163"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="162" y="150"></point>
+        <point x="200" y="105"></point>
+        <point x="245" y="90"></point>
+        <point x="275" y="90"></point>
+        <point x="290" y="105"></point>
+        <point x="290" y="135"></point>
+        <point x="275" y="180"></point>
+        <point x="260" y="195"></point>
+        <point x="215" y="195"></point>
+        <point x="162" y="165"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="150" y="255"></point>
+        <point x="135" y="225"></point>
+        <point x="120" y="150"></point>
+        <point x="135" y="120"></point>
+        <point x="150" y="105"></point>
+        <point x="165" y="120"></point>
+        <point x="180" y="150"></point>
+        <point x="165" y="225"></point>
+      </polygon>
+      <circle x="135" y="90" marked="false" color="255" diameter="30" filled="true"></circle>
+      <line endX="195" startY="105" marked="false" color="255" endY="60" startX="150"></line>
+      <line endX="105" startY="105" marked="false" color="255" endY="60" startX="150"></line>
+    </shape>
+    <shape name="car" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="300" y="180"></point>
+        <point x="279" y="164"></point>
+        <point x="261" y="144"></point>
+        <point x="240" y="135"></point>
+        <point x="226" y="132"></point>
+        <point x="213" y="106"></point>
+        <point x="203" y="84"></point>
+        <point x="185" y="63"></point>
+        <point x="159" y="50"></point>
+        <point x="135" y="50"></point>
+        <point x="75" y="60"></point>
+        <point x="0" y="150"></point>
+        <point x="0" y="165"></point>
+        <point x="0" y="225"></point>
+        <point x="300" y="225"></point>
+        <point x="300" y="180"></point>
+      </polygon>
+      <circle x="180" y="180" marked="false" color="255" diameter="90" filled="true"></circle>
+      <circle x="30" y="180" marked="false" color="255" diameter="90" filled="true"></circle>
+      <polygon color="255" filled="true" marked="false">
+        <point x="162" y="80"></point>
+        <point x="132" y="78"></point>
+        <point x="134" y="135"></point>
+        <point x="209" y="135"></point>
+        <point x="194" y="105"></point>
+        <point x="189" y="96"></point>
+        <point x="180" y="89"></point>
+      </polygon>
+      <circle x="47" y="195" marked="true" color="-1920102913" diameter="58" filled="true"></circle>
+      <circle x="195" y="195" marked="true" color="-1920102913" diameter="58" filled="true"></circle>
+    </shape>
+    <shape name="circle" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
+    </shape>
+    <shape name="circle 2" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
+      <circle x="30" y="30" marked="false" color="255" diameter="240" filled="true"></circle>
+    </shape>
+    <shape name="cow" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="200" y="193"></point>
+        <point x="197" y="249"></point>
+        <point x="179" y="249"></point>
+        <point x="177" y="196"></point>
+        <point x="166" y="187"></point>
+        <point x="140" y="189"></point>
+        <point x="93" y="191"></point>
+        <point x="78" y="179"></point>
+        <point x="72" y="211"></point>
+        <point x="49" y="209"></point>
+        <point x="48" y="181"></point>
+        <point x="37" y="149"></point>
+        <point x="25" y="120"></point>
+        <point x="25" y="89"></point>
+        <point x="45" y="72"></point>
+        <point x="103" y="84"></point>
+        <point x="179" y="75"></point>
+        <point x="198" y="76"></point>
+        <point x="252" y="64"></point>
+        <point x="272" y="81"></point>
+        <point x="293" y="103"></point>
+        <point x="285" y="121"></point>
+        <point x="255" y="121"></point>
+        <point x="242" y="118"></point>
+        <point x="224" y="167"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="73" y="210"></point>
+        <point x="86" y="251"></point>
+        <point x="62" y="249"></point>
+        <point x="48" y="208"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="25" y="114"></point>
+        <point x="16" y="195"></point>
+        <point x="9" y="204"></point>
+        <point x="23" y="213"></point>
+        <point x="25" y="200"></point>
+        <point x="39" y="123"></point>
+      </polygon>
+    </shape>
+    <shape name="cylinder" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
+    </shape>
+    <shape name="dot" rotatable="false" editableColorIndex="0">
+      <circle x="90" y="90" marked="true" color="-1920102913" diameter="120" filled="true"></circle>
+    </shape>
+    <shape name="face happy" rotatable="false" editableColorIndex="0">
+      <circle x="8" y="8" marked="true" color="-1920102913" diameter="285" filled="true"></circle>
+      <circle x="60" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <circle x="180" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <polygon color="255" filled="true" marked="false">
+        <point x="150" y="255"></point>
+        <point x="90" y="239"></point>
+        <point x="62" y="213"></point>
+        <point x="47" y="191"></point>
+        <point x="67" y="179"></point>
+        <point x="90" y="203"></point>
+        <point x="109" y="218"></point>
+        <point x="150" y="225"></point>
+        <point x="192" y="218"></point>
+        <point x="210" y="203"></point>
+        <point x="227" y="181"></point>
+        <point x="251" y="194"></point>
+        <point x="236" y="217"></point>
+        <point x="212" y="240"></point>
+      </polygon>
+    </shape>
+    <shape name="face neutral" rotatable="false" editableColorIndex="0">
+      <circle x="8" y="7" marked="true" color="-1920102913" diameter="285" filled="true"></circle>
+      <circle x="60" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <circle x="180" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <rectangle endX="240" startY="195" marked="false" color="255" endY="225" startX="60" filled="true"></rectangle>
+    </shape>
+    <shape name="face sad" rotatable="false" editableColorIndex="0">
+      <circle x="8" y="8" marked="true" color="-1920102913" diameter="285" filled="true"></circle>
+      <circle x="60" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <circle x="180" y="75" marked="false" color="255" diameter="60" filled="true"></circle>
+      <polygon color="255" filled="true" marked="false">
+        <point x="150" y="168"></point>
+        <point x="90" y="184"></point>
+        <point x="62" y="210"></point>
+        <point x="47" y="232"></point>
+        <point x="67" y="244"></point>
+        <point x="90" y="220"></point>
+        <point x="109" y="205"></point>
+        <point x="150" y="198"></point>
+        <point x="192" y="205"></point>
+        <point x="210" y="220"></point>
+        <point x="227" y="242"></point>
+        <point x="251" y="229"></point>
+        <point x="236" y="206"></point>
+        <point x="212" y="183"></point>
+      </polygon>
+    </shape>
+    <shape name="fish" rotatable="false" editableColorIndex="0">
+      <polygon color="-1" filled="true" marked="false">
+        <point x="44" y="131"></point>
+        <point x="21" y="87"></point>
+        <point x="15" y="86"></point>
+        <point x="0" y="120"></point>
+        <point x="15" y="150"></point>
+        <point x="0" y="180"></point>
+        <point x="13" y="214"></point>
+        <point x="20" y="212"></point>
+        <point x="45" y="166"></point>
+      </polygon>
+      <polygon color="-1" filled="true" marked="false">
+        <point x="135" y="195"></point>
+        <point x="119" y="235"></point>
+        <point x="95" y="218"></point>
+        <point x="76" y="210"></point>
+        <point x="46" y="204"></point>
+        <point x="60" y="165"></point>
+      </polygon>
+      <polygon color="-1" filled="true" marked="false">
+        <point x="75" y="45"></point>
+        <point x="83" y="77"></point>
+        <point x="71" y="103"></point>
+        <point x="86" y="114"></point>
+        <point x="166" y="78"></point>
+        <point x="135" y="60"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="30" y="136"></point>
+        <point x="151" y="77"></point>
+        <point x="226" y="81"></point>
+        <point x="280" y="119"></point>
+        <point x="292" y="146"></point>
+        <point x="292" y="160"></point>
+        <point x="287" y="170"></point>
+        <point x="270" y="195"></point>
+        <point x="195" y="210"></point>
+        <point x="151" y="212"></point>
+        <point x="30" y="166"></point>
+      </polygon>
+      <circle x="215" y="106" marked="false" color="255" diameter="30" filled="true"></circle>
+    </shape>
+    <shape name="flag" rotatable="false" editableColorIndex="0">
+      <rectangle endX="75" startY="15" marked="true" color="-1920102913" endY="300" startX="60" filled="true"></rectangle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="90" y="150"></point>
+        <point x="270" y="90"></point>
+        <point x="90" y="30"></point>
+      </polygon>
+      <line endX="90" startY="135" marked="true" color="-1920102913" endY="135" startX="75"></line>
+      <line endX="90" startY="45" marked="true" color="-1920102913" endY="45" startX="75"></line>
+    </shape>
+    <shape name="flower" rotatable="false" editableColorIndex="0">
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="135" y="120"></point>
+        <point x="165" y="165"></point>
+        <point x="180" y="210"></point>
+        <point x="180" y="240"></point>
+        <point x="150" y="300"></point>
+        <point x="165" y="300"></point>
+        <point x="195" y="240"></point>
+        <point x="195" y="195"></point>
+        <point x="165" y="135"></point>
+      </polygon>
+      <circle x="85" y="132" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="130" y="147" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="192" y="85" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="85" y="40" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="177" y="40" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="177" y="132" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="70" y="85" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="130" y="25" marked="true" color="-1920102913" diameter="38" filled="true"></circle>
+      <circle x="96" y="51" marked="true" color="-1920102913" diameter="108" filled="true"></circle>
+      <circle x="113" y="68" marked="false" color="255" diameter="74" filled="true"></circle>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="189" y="233"></point>
+        <point x="219" y="188"></point>
+        <point x="249" y="173"></point>
+        <point x="279" y="188"></point>
+        <point x="234" y="218"></point>
+      </polygon>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="180" y="255"></point>
+        <point x="150" y="210"></point>
+        <point x="105" y="210"></point>
+        <point x="75" y="240"></point>
+        <point x="135" y="240"></point>
+      </polygon>
+    </shape>
+    <shape name="house" rotatable="false" editableColorIndex="0">
+      <rectangle endX="255" startY="120" marked="true" color="-1920102913" endY="285" startX="45" filled="true"></rectangle>
+      <rectangle endX="180" startY="210" marked="false" color="255" endY="285" startX="120" filled="true"></rectangle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="15" y="120"></point>
+        <point x="150" y="15"></point>
+        <point x="285" y="120"></point>
+      </polygon>
+      <line endX="270" startY="120" marked="false" color="255" endY="120" startX="30"></line>
+    </shape>
+    <shape name="leaf" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="210"></point>
+        <point x="135" y="195"></point>
+        <point x="120" y="210"></point>
+        <point x="60" y="210"></point>
+        <point x="30" y="195"></point>
+        <point x="60" y="180"></point>
+        <point x="60" y="165"></point>
+        <point x="15" y="135"></point>
+        <point x="30" y="120"></point>
+        <point x="15" y="105"></point>
+        <point x="40" y="104"></point>
+        <point x="45" y="90"></point>
+        <point x="60" y="90"></point>
+        <point x="90" y="105"></point>
+        <point x="105" y="120"></point>
+        <point x="120" y="120"></point>
+        <point x="105" y="60"></point>
+        <point x="120" y="60"></point>
+        <point x="135" y="30"></point>
+        <point x="150" y="15"></point>
+        <point x="165" y="30"></point>
+        <point x="180" y="60"></point>
+        <point x="195" y="60"></point>
+        <point x="180" y="120"></point>
+        <point x="195" y="120"></point>
+        <point x="210" y="105"></point>
+        <point x="240" y="90"></point>
+        <point x="255" y="90"></point>
+        <point x="263" y="104"></point>
+        <point x="285" y="105"></point>
+        <point x="270" y="120"></point>
+        <point x="285" y="135"></point>
+        <point x="240" y="165"></point>
+        <point x="240" y="180"></point>
+        <point x="270" y="195"></point>
+        <point x="240" y="210"></point>
+        <point x="180" y="210"></point>
+        <point x="165" y="195"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="135" y="195"></point>
+        <point x="135" y="240"></point>
+        <point x="120" y="255"></point>
+        <point x="105" y="255"></point>
+        <point x="105" y="285"></point>
+        <point x="135" y="285"></point>
+        <point x="165" y="240"></point>
+        <point x="165" y="195"></point>
+      </polygon>
+    </shape>
+    <shape name="line" rotatable="true" editableColorIndex="0">
+      <line endX="150" startY="0" marked="true" color="-1920102913" endY="300" startX="150"></line>
+    </shape>
+    <shape name="line half" rotatable="true" editableColorIndex="0">
+      <line endX="150" startY="0" marked="true" color="-1920102913" endY="150" startX="150"></line>
+    </shape>
+    <shape name="pentagon" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="15"></point>
+        <point x="15" y="120"></point>
+        <point x="60" y="285"></point>
+        <point x="240" y="285"></point>
+        <point x="285" y="120"></point>
+      </polygon>
+    </shape>
+    <shape name="person" rotatable="false" editableColorIndex="0">
+      <circle x="110" y="5" marked="true" color="-1920102913" diameter="80" filled="true"></circle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="105" y="90"></point>
+        <point x="120" y="195"></point>
+        <point x="90" y="285"></point>
+        <point x="105" y="300"></point>
+        <point x="135" y="300"></point>
+        <point x="150" y="225"></point>
+        <point x="165" y="300"></point>
+        <point x="195" y="300"></point>
+        <point x="210" y="285"></point>
+        <point x="180" y="195"></point>
+        <point x="195" y="90"></point>
+      </polygon>
+      <rectangle endX="172" startY="79" marked="true" color="-1920102913" endY="94" startX="127" filled="true"></rectangle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="195" y="90"></point>
+        <point x="240" y="150"></point>
+        <point x="225" y="180"></point>
+        <point x="165" y="105"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="105" y="90"></point>
+        <point x="60" y="150"></point>
+        <point x="75" y="180"></point>
+        <point x="135" y="105"></point>
+      </polygon>
+    </shape>
+    <shape name="plant" rotatable="false" editableColorIndex="0">
+      <rectangle endX="165" startY="90" marked="true" color="-1920102913" endY="300" startX="135" filled="true"></rectangle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="135" y="255"></point>
+        <point x="90" y="210"></point>
+        <point x="45" y="195"></point>
+        <point x="75" y="255"></point>
+        <point x="135" y="285"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="165" y="255"></point>
+        <point x="210" y="210"></point>
+        <point x="255" y="195"></point>
+        <point x="225" y="255"></point>
+        <point x="165" y="285"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="135" y="180"></point>
+        <point x="90" y="135"></point>
+        <point x="45" y="120"></point>
+        <point x="75" y="180"></point>
+        <point x="135" y="210"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="165" y="180"></point>
+        <point x="165" y="210"></point>
+        <point x="225" y="180"></point>
+        <point x="255" y="120"></point>
+        <point x="210" y="135"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="135" y="105"></point>
+        <point x="90" y="60"></point>
+        <point x="45" y="45"></point>
+        <point x="75" y="105"></point>
+        <point x="135" y="135"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="165" y="105"></point>
+        <point x="165" y="135"></point>
+        <point x="225" y="105"></point>
+        <point x="255" y="45"></point>
+        <point x="210" y="60"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="135" y="90"></point>
+        <point x="120" y="45"></point>
+        <point x="150" y="15"></point>
+        <point x="180" y="45"></point>
+        <point x="165" y="90"></point>
+      </polygon>
+    </shape>
+    <shape name="sheep" rotatable="false" editableColorIndex="15">
+      <circle x="203" y="65" marked="true" color="-1" diameter="88" filled="true"></circle>
+      <circle x="70" y="65" marked="true" color="-1" diameter="162" filled="true"></circle>
+      <circle x="150" y="105" marked="true" color="-1" diameter="120" filled="true"></circle>
+      <polygon color="-1920102913" filled="true" marked="false">
+        <point x="218" y="120"></point>
+        <point x="240" y="165"></point>
+        <point x="255" y="165"></point>
+        <point x="278" y="120"></point>
+      </polygon>
+      <circle x="214" y="72" marked="false" color="-1920102913" diameter="67" filled="true"></circle>
+      <rectangle endX="179" startY="223" marked="true" color="-1" endY="298" startX="164" filled="true"></rectangle>
+      <polygon color="-1" filled="true" marked="true">
+        <point x="45" y="285"></point>
+        <point x="30" y="285"></point>
+        <point x="30" y="240"></point>
+        <point x="15" y="195"></point>
+        <point x="45" y="210"></point>
+      </polygon>
+      <circle x="3" y="83" marked="true" color="-1" diameter="150" filled="true"></circle>
+      <rectangle endX="80" startY="221" marked="true" color="-1" endY="296" startX="65" filled="true"></rectangle>
+      <polygon color="-1" filled="true" marked="true">
+        <point x="195" y="285"></point>
+        <point x="210" y="285"></point>
+        <point x="210" y="240"></point>
+        <point x="240" y="210"></point>
+        <point x="195" y="210"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="false">
+        <point x="276" y="85"></point>
+        <point x="285" y="105"></point>
+        <point x="302" y="99"></point>
+        <point x="294" y="83"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="false">
+        <point x="219" y="85"></point>
+        <point x="210" y="105"></point>
+        <point x="193" y="99"></point>
+        <point x="201" y="83"></point>
+      </polygon>
+    </shape>
+    <shape name="square" rotatable="false" editableColorIndex="0">
+      <rectangle endX="270" startY="30" marked="true" color="-1920102913" endY="270" startX="30" filled="true"></rectangle>
+    </shape>
+    <shape name="square 2" rotatable="false" editableColorIndex="0">
+      <rectangle endX="270" startY="30" marked="true" color="-1920102913" endY="270" startX="30" filled="true"></rectangle>
+      <rectangle endX="240" startY="60" marked="false" color="255" endY="240" startX="60" filled="true"></rectangle>
+    </shape>
+    <shape name="star" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="151" y="1"></point>
+        <point x="185" y="108"></point>
+        <point x="298" y="108"></point>
+        <point x="207" y="175"></point>
+        <point x="242" y="282"></point>
+        <point x="151" y="216"></point>
+        <point x="59" y="282"></point>
+        <point x="94" y="175"></point>
+        <point x="3" y="108"></point>
+        <point x="116" y="108"></point>
+      </polygon>
+    </shape>
+    <shape name="target" rotatable="false" editableColorIndex="0">
+      <circle x="0" y="0" marked="true" color="-1920102913" diameter="300" filled="true"></circle>
+      <circle x="30" y="30" marked="false" color="255" diameter="240" filled="true"></circle>
+      <circle x="60" y="60" marked="true" color="-1920102913" diameter="180" filled="true"></circle>
+      <circle x="90" y="90" marked="false" color="255" diameter="120" filled="true"></circle>
+      <circle x="120" y="120" marked="true" color="-1920102913" diameter="60" filled="true"></circle>
+    </shape>
+    <shape name="tree" rotatable="false" editableColorIndex="0">
+      <circle x="118" y="3" marked="true" color="-1920102913" diameter="94" filled="true"></circle>
+      <rectangle endX="180" startY="195" marked="false" color="-1653716737" endY="300" startX="120" filled="true"></rectangle>
+      <circle x="65" y="21" marked="true" color="-1920102913" diameter="108" filled="true"></circle>
+      <circle x="116" y="41" marked="true" color="-1920102913" diameter="127" filled="true"></circle>
+      <circle x="45" y="90" marked="true" color="-1920102913" diameter="120" filled="true"></circle>
+      <circle x="104" y="74" marked="true" color="-1920102913" diameter="152" filled="true"></circle>
+    </shape>
+    <shape name="triangle" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="30"></point>
+        <point x="15" y="255"></point>
+        <point x="285" y="255"></point>
+      </polygon>
+    </shape>
+    <shape name="triangle 2" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="150" y="30"></point>
+        <point x="15" y="255"></point>
+        <point x="285" y="255"></point>
+      </polygon>
+      <polygon color="255" filled="true" marked="false">
+        <point x="151" y="99"></point>
+        <point x="225" y="223"></point>
+        <point x="75" y="224"></point>
+      </polygon>
+    </shape>
+    <shape name="truck" rotatable="false" editableColorIndex="0">
+      <rectangle endX="195" startY="45" marked="true" color="-1920102913" endY="187" startX="4" filled="true"></rectangle>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="296" y="193"></point>
+        <point x="296" y="150"></point>
+        <point x="259" y="134"></point>
+        <point x="244" y="104"></point>
+        <point x="208" y="104"></point>
+        <point x="207" y="194"></point>
+      </polygon>
+      <rectangle endX="195" startY="60" marked="false" color="-1" endY="105" startX="195" filled="true"></rectangle>
+      <polygon color="255" filled="true" marked="false">
+        <point x="238" y="112"></point>
+        <point x="252" y="141"></point>
+        <point x="219" y="141"></point>
+        <point x="218" y="112"></point>
+      </polygon>
+      <circle x="234" y="174" marked="false" color="255" diameter="42" filled="true"></circle>
+      <rectangle endX="214" startY="185" marked="true" color="-1920102913" endY="194" startX="181" filled="true"></rectangle>
+      <circle x="144" y="174" marked="false" color="255" diameter="42" filled="true"></circle>
+      <circle x="24" y="174" marked="false" color="255" diameter="42" filled="true"></circle>
+      <circle x="24" y="174" marked="true" color="-1920102913" diameter="42" filled="false"></circle>
+      <circle x="144" y="174" marked="true" color="-1920102913" diameter="42" filled="false"></circle>
+      <circle x="234" y="174" marked="true" color="-1920102913" diameter="42" filled="false"></circle>
+    </shape>
+    <shape name="turtle" rotatable="true" editableColorIndex="0">
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="215" y="204"></point>
+        <point x="240" y="233"></point>
+        <point x="246" y="254"></point>
+        <point x="228" y="266"></point>
+        <point x="215" y="252"></point>
+        <point x="193" y="210"></point>
+      </polygon>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="195" y="90"></point>
+        <point x="225" y="75"></point>
+        <point x="245" y="75"></point>
+        <point x="260" y="89"></point>
+        <point x="269" y="108"></point>
+        <point x="261" y="124"></point>
+        <point x="240" y="105"></point>
+        <point x="225" y="105"></point>
+        <point x="210" y="105"></point>
+      </polygon>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="105" y="90"></point>
+        <point x="75" y="75"></point>
+        <point x="55" y="75"></point>
+        <point x="40" y="89"></point>
+        <point x="31" y="108"></point>
+        <point x="39" y="124"></point>
+        <point x="60" y="105"></point>
+        <point x="75" y="105"></point>
+        <point x="90" y="105"></point>
+      </polygon>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="132" y="85"></point>
+        <point x="134" y="64"></point>
+        <point x="107" y="51"></point>
+        <point x="108" y="17"></point>
+        <point x="150" y="2"></point>
+        <point x="192" y="18"></point>
+        <point x="192" y="52"></point>
+        <point x="169" y="65"></point>
+        <point x="172" y="87"></point>
+      </polygon>
+      <polygon color="1504722175" filled="true" marked="false">
+        <point x="85" y="204"></point>
+        <point x="60" y="233"></point>
+        <point x="54" y="254"></point>
+        <point x="72" y="266"></point>
+        <point x="85" y="252"></point>
+        <point x="107" y="210"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="119" y="75"></point>
+        <point x="179" y="75"></point>
+        <point x="209" y="101"></point>
+        <point x="224" y="135"></point>
+        <point x="220" y="225"></point>
+        <point x="175" y="261"></point>
+        <point x="128" y="261"></point>
+        <point x="81" y="224"></point>
+        <point x="74" y="135"></point>
+        <point x="88" y="99"></point>
+      </polygon>
+    </shape>
+    <shape name="wheel" rotatable="false" editableColorIndex="0">
+      <circle x="3" y="3" marked="true" color="-1920102913" diameter="294" filled="true"></circle>
+      <circle x="30" y="30" marked="false" color="255" diameter="240" filled="true"></circle>
+      <line endX="150" startY="285" marked="true" color="-1920102913" endY="15" startX="150"></line>
+      <line endX="285" startY="150" marked="true" color="-1920102913" endY="150" startX="15"></line>
+      <circle x="120" y="120" marked="true" color="-1920102913" diameter="60" filled="true"></circle>
+      <line endX="79" startY="40" marked="true" color="-1920102913" endY="269" startX="216"></line>
+      <line endX="269" startY="84" marked="true" color="-1920102913" endY="221" startX="40"></line>
+      <line endX="269" startY="216" marked="true" color="-1920102913" endY="79" startX="40"></line>
+      <line endX="221" startY="40" marked="true" color="-1920102913" endY="269" startX="84"></line>
+    </shape>
+    <shape name="wolf" rotatable="false" editableColorIndex="0">
+      <polygon color="255" filled="true" marked="false">
+        <point x="253" y="133"></point>
+        <point x="245" y="131"></point>
+        <point x="245" y="133"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="2" y="194"></point>
+        <point x="13" y="197"></point>
+        <point x="30" y="191"></point>
+        <point x="38" y="193"></point>
+        <point x="38" y="205"></point>
+        <point x="20" y="226"></point>
+        <point x="20" y="257"></point>
+        <point x="27" y="265"></point>
+        <point x="38" y="266"></point>
+        <point x="40" y="260"></point>
+        <point x="31" y="253"></point>
+        <point x="31" y="230"></point>
+        <point x="60" y="206"></point>
+        <point x="68" y="198"></point>
+        <point x="75" y="209"></point>
+        <point x="66" y="228"></point>
+        <point x="65" y="243"></point>
+        <point x="82" y="261"></point>
+        <point x="84" y="268"></point>
+        <point x="100" y="267"></point>
+        <point x="103" y="261"></point>
+        <point x="77" y="239"></point>
+        <point x="79" y="231"></point>
+        <point x="100" y="207"></point>
+        <point x="98" y="196"></point>
+        <point x="119" y="201"></point>
+        <point x="143" y="202"></point>
+        <point x="160" y="195"></point>
+        <point x="166" y="210"></point>
+        <point x="172" y="213"></point>
+        <point x="173" y="238"></point>
+        <point x="167" y="251"></point>
+        <point x="160" y="248"></point>
+        <point x="154" y="265"></point>
+        <point x="169" y="264"></point>
+        <point x="178" y="247"></point>
+        <point x="186" y="240"></point>
+        <point x="198" y="260"></point>
+        <point x="200" y="271"></point>
+        <point x="217" y="271"></point>
+        <point x="219" y="262"></point>
+        <point x="207" y="258"></point>
+        <point x="195" y="230"></point>
+        <point x="192" y="198"></point>
+        <point x="210" y="184"></point>
+        <point x="227" y="164"></point>
+        <point x="242" y="144"></point>
+        <point x="259" y="145"></point>
+        <point x="284" y="151"></point>
+        <point x="277" y="141"></point>
+        <point x="293" y="140"></point>
+        <point x="299" y="134"></point>
+        <point x="297" y="127"></point>
+        <point x="273" y="119"></point>
+        <point x="270" y="105"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="-1" y="195"></point>
+        <point x="14" y="180"></point>
+        <point x="36" y="166"></point>
+        <point x="40" y="153"></point>
+        <point x="53" y="140"></point>
+        <point x="82" y="131"></point>
+        <point x="134" y="133"></point>
+        <point x="159" y="126"></point>
+        <point x="188" y="115"></point>
+        <point x="227" y="108"></point>
+        <point x="236" y="102"></point>
+        <point x="238" y="98"></point>
+        <point x="268" y="86"></point>
+        <point x="269" y="92"></point>
+        <point x="281" y="87"></point>
+        <point x="269" y="103"></point>
+        <point x="269" y="113"></point>
+      </polygon>
+    </shape>
+    <shape name="x" rotatable="false" editableColorIndex="0">
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="270" y="75"></point>
+        <point x="225" y="30"></point>
+        <point x="30" y="225"></point>
+        <point x="75" y="270"></point>
+      </polygon>
+      <polygon color="-1920102913" filled="true" marked="true">
+        <point x="30" y="75"></point>
+        <point x="75" y="30"></point>
+        <point x="270" y="225"></point>
+        <point x="225" y="270"></point>
       </polygon>
     </shape>
   </turtleShapes>

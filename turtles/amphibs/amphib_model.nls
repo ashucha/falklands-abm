@@ -1,0 +1,88 @@
+amphibs-own [ name new-heading turn-rate radar-range gun-range sam-range mez-range troop-count my-flotilla lp-x lp-y ]
+
+to setup-amphibs-old 
+  create-amphibs 10 [   ;; sources say somewhere between 8-12 amphibs were used, using an even 10
+    set shape "default" ;; determines the icon to display the turtle
+    set name "type_42"
+    set speed 0.45
+    set state "straight"
+    set radar-range 18
+    set gun-range 10
+    set sam-range 8
+    set mez-range  5
+    set turn-rate 0.5
+    set troop-count 50
+    set size 1.5
+    set color brown
+    setxy random-xcor random-ycor 
+  ]
+end
+
+to move-amphibs
+  ask amphibs [
+    if state = "convoy" [ ;; just move with the flotilla
+      ifelse my-flotilla != nobody [ 
+        if [state] of my-flotilla = "phase1" or [state] of my-flotilla = "phase2" [
+          set heading [heading] of my-flotilla
+          forward speed
+        ]
+        if [state] of my-flotilla = "phase3" [ ;; begin condensing to navigate around the land
+          set state "approach"
+        ]
+      ][
+        set state "approach"
+      ]
+    ]
+    if state = "approach" [
+       ;; else approach the landing point
+        let wp (item w-i waypoints) 
+        ifelse distance patch (item 0 wp) (item 1 wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+          face patch (item 0 wp) (item 1 wp)
+          forward speed
+        ][ 
+          set w-i w-i + 1 
+          if w-i >= length waypoints [ ;; if the amphibs have landed. 
+            set amphibs-landed amphibs-landed + 1
+            die ;; (Q@Grace) is this the right behavior? or do we still want these to be able to be engaged and bombed by FAA?
+          ]
+        ]       
+    ]
+  ]
+end
+
+;; find location of "events"/maybe change pcolor?
+to move-amphibs-old
+  ;;ask ships [
+    ;; Find the carrier closest to this frigate
+  ;;  let lead-carrier min-one-of carriers [distance myself]
+    
+   ;; let target-x pxcor
+   ;; let target-y pycor
+  ;;  ]
+  
+  ask amphibs [
+    ifelse state = "turning" [
+      let delta subtract-headings new-heading heading
+      ifelse abs (delta) > turn-rate [ ;; need to keep turning
+        ifelse delta > 180 [ rt turn-rate ] [ lt turn-rate ]
+      ] [
+        set state "straight"
+      ]
+    ] [
+      if ticks mod 5 = 0 [ rt (2 - random-float 4) ]
+      if ticks mod 500 = 0 [
+        if random 100 > 30 [ 
+          set new-heading new-heading + 45 - random 90
+          set state "turning"
+        ]
+      ]
+    ]
+    forward speed
+    
+    ;; UI stuff, useful for debugging
+    ifelse show-stat? [ 
+      set label name
+    ] [ set label "" ]
+  ]
+end
+

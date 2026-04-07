@@ -8,11 +8,23 @@ to advance-time [ m ]
     set cur-hour cur-hour + 1
   ]
   
-  ;; Roll hours into days
+  ;; Roll hours into days (midnight)
   while [cur-hour >= 24] [
     set cur-hour cur-hour - 24
     set cur-day cur-day + 1
     set conflict-days conflict-days + 1
+  ]
+
+  ;; Operational day only 6:00–20:00: at/after 8 PM jump to 6 AM next calendar day
+  while [cur-hour >= 20] [
+    set cur-day cur-day + 1
+    set conflict-days conflict-days + 1
+    set cur-hour (cur-hour - 20) + 6
+  ]
+
+  ;; Hours 00:00–05:59 (after a midnight roll) fast-forward to 6 AM same day
+  if cur-hour < 6 [
+    set cur-hour 6
   ]
   
   ;; Roll days into months (The tricky part)

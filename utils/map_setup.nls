@@ -1,0 +1,142 @@
+;; These functions are used to import the map and create the different sections
+
+to setup-world
+  resize-world -100 250 -100 100
+end
+
+to load-map
+  import-pcolors "falklands map v5.png"
+end
+
+to classify-ocean-patches
+  ask patches [
+    let c extract-rgb pcolor
+    let r item 0 c
+    let g item 1 c
+    let b item 2 c
+    
+    ifelse (b > r and b > g) [
+      set ocean? true
+    ] [
+      set ocean? false
+    ]
+  ]
+end
+
+to recolor-base-map
+  ask patches [
+    if ocean? [ set pcolor blue ]
+    if not ocean? [ set pcolor green ]
+  ]
+end
+
+to color-ocean-sections
+  ;; section 1
+  ask patches with [
+    pxcor >= 168 and pxcor <= 226 and
+    pycor >= -38 and pycor <= 28
+  ] [
+    set pcolor blue + 1.5
+    set zone "zone-1"
+  ]
+  
+  ;; section 2
+  ask patches with [
+    pxcor >= 110 and pxcor <= 168 and
+    pycor >= -38 and pycor <= 28
+  ] [
+    set pcolor blue + 1
+    set zone "zone-2"
+  ]
+  
+  ;; section 3
+  ask patches with [
+    pxcor >= 52 and pxcor <= 110 and
+    pycor >= -38 and pycor <= 28
+  ] [
+    set pcolor blue + 0.5
+    set zone "zone-3"
+  ]
+end
+
+;; section 4 (triangles)
+to color-triangle-sections
+  ;; triangle section top
+  let ax 7  let ay 28
+  let bx 51 let by 28
+  let cx 51 let cy 15
+
+  ask patches [
+    let px pxcor
+    let py pycor
+    
+    let side1 ((bx - ax) * (py - ay) - (by - ay) * (px - ax))
+    let side2 ((cx - bx) * (py - by) - (cy - by) * (px - bx))
+    let side3 ((ax - cx) * (py - cy) - (ay - cy) * (px - cx))
+    
+    if (side1 >= 0 and side2 >= 0 and side3 >= 0) or
+       (side1 <= 0 and side2 <= 0 and side3 <= 0) [
+      set pcolor sky
+      set zone "zone-4"
+    ]
+  ]
+
+  ;; triangle section bottom
+  let ax2 7  let ay2 -38
+  let bx2 51 let by2 -38
+  let cx2 51 let cy2 -10
+
+  ask patches [
+    let px pxcor
+    let py pycor
+    
+    let side1 ((bx2 - ax2) * (py - ay2) - (by2 - ay2) * (px - ax2))
+    let side2 ((cx2 - bx2) * (py - by2) - (cy2 - by2) * (px - bx2))
+    let side3 ((ax2 - cx2) * (py - cy2) - (ay2 - cy2) * (px - cx2))
+    
+    if (side1 >= 0 and side2 >= 0 and side3 >= 0) or
+       (side1 <= 0 and side2 <= 0 and side3 <= 0) [
+      set pcolor sky
+      set zone "zone-4"
+    ]
+  ]
+end
+
+;; section 5
+to color-channel-zone
+  ask patches with [
+    ocean? and
+    all? neighbors [ ocean? ] and
+    (
+      (pycor >= 13 and pycor <= 28 and pxcor >= -13 and pxcor <= 6) or
+      (pxcor > -35 and pxcor < 7 and pycor < 13 and pycor > -22) or
+      (pycor >= -38 and pycor <= -22 and pxcor >= -36 and pxcor <= -17)
+    )
+  ] [
+    set pcolor cyan
+    set zone "zone-5"
+  ]
+end
+
+to TEZ-edge-location
+  let cx floor (nmi-to-patches 200)
+  let cy 0
+
+  ask patches with [
+    ocean? and
+    pxcor = cx and pycor = cy
+  ] [
+    set zone "TEZ-edge-zone"
+  ]
+end
+
+to setup-map
+  setup-world
+  load-map
+  classify-ocean-patches
+  recolor-base-map
+  color-ocean-sections
+  color-triangle-sections
+  color-channel-zone
+  TEZ-edge-location
+end

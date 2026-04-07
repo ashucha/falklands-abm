@@ -1,0 +1,231 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; NGFS PHASE: Naval Gunfire Support
+;; Handles: fire interval gating, strike targeting,
+;;          damage calculation, suppression, casualty effects
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; ─────────────────────────────────────────────────────────────
+;; Phase driver — called once per tick from go
+;; Executes one NGFS strike (or none if fire interval not ready)
+;; ─────────────────────────────────────────────────────────────
+to run-ngfs-phase
+  ngfs-execute-strike
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Execute one naval gunfire strike with ship selection,
+;; range-constrained target selection, dispersion, and damage
+;; ─────────────────────────────────────────────────────────────
+to ngfs-execute-strike
+
+  ;; NGFS disabled or no ships available — no strikes fire
+  if not ngfs-enabled? [ stop ]
+  if get-living-ship-count = 0 [ stop ]
+
+  ;; Fire interval gating with dynamic penalty for lost ships
+  let current-interval get-dynamic-ngfs-interval
+  if (ticks - ngfs-last-fire-tick) < current-interval [
+    stop
+  ]
+
+  set ngfs-last-fire-tick ticks
+
+  ;; Select a random living ship
+  let firing-ship get-random-living-ship
+  if firing-ship = nobody [ stop ]
+
+  ;; Get ship position [x y]
+  let ship-pos get-ship-position firing-ship
+  if ship-pos = false [ stop ]
+  
+  let ship-x item 0 ship-pos
+  let ship-y item 1 ship-pos
+  let ship-patch patch ship-x ship-y
+
+  ;; Find Argentine targets within the ship's firing range (15 patches)
+  ;; Range is measured from the ship's position
+  let targets argentine-troops with [
+    distance ship-patch <= ngfs-ship-range
+  ]
+
+  ;; Realistic mode might add additional filtering by coast distance
+  ;; For now, just use ship range
+  if ngfs-mode = "realistic" [
+    set targets targets with [
+      distance-to-coast patch-here <= ngfs-ship-range
+    ]
+  ]
+
+  ;; No valid targets in range
+  if not any? targets [ stop ]
+
+  ;; Select the target closest to the ship
+  let strike-target min-one-of targets [distance ship-patch]
+
+  set ngfs-strikes ngfs-strikes + 1
+
+  ;; Dispersion simulation — rounds land in random point within radius
+  ;; Model accounts for artillery inaccuracy  
+  let angle  random-float 360
+  let radius random-float ngfs-dispersion-radius
+  let impact-x [xcor] of strike-target + radius * sin angle
+  let impact-y [ycor] of strike-target + radius * cos angle
+  
+  ;; Clamp impact point to world boundaries (no wrapping)
+  if impact-x < min-pxcor [ set impact-x min-pxcor ]
+  if impact-x > max-pxcor [ set impact-x max-pxcor ]
+  if impact-y < min-pycor [ set impact-y min-pycor ]
+  if impact-y > max-pycor [ set impact-y max-pycor ]
+  let impact-center patch impact-x impact-y
+
+  ;; Record actual landing point for analysis
+  set ngfs-last-strike-x [pxcor] of impact-center
+  set ngfs-last-strike-y [pycor] of impact-center
+
+  ;; Capture pre-strike kill count
+  let pre-kills ngfs-total-kills
+  let pre-bunkers bunkers-destroyed
+
+  ;; Apply damage to all patches in blast radius (2 patches)
+  ask impact-center [
+    ask patches in-radius 2 [
+      ngfs-apply-damage impact-center
+    ]
+  ]
+
+end
+
+;; ─────────────────────────────────────────────────────────────
+;; Apply NGFS blast damage — called once per patch in blast radius
+;; Handles: bunker structure damage, troop casualties,
+;;          suppression, morale loss, probabilistic death
+;; ─────────────────────────────────────────────────────────────
+to ngfs-apply-damage [center]
+
+  ;; Visual feedback — red flash on impact
+  set ngfs-flash-ticks 1
+  set pcolor red
+  set strike-count strike-count + 1
+
+  ;; Damage falloff with distance from impact center
+  ;; Max 20 damage at center (~0 distance), decays to 0 at ~4 distance
+  let dist distance center
+  let base-damage (20 - (dist * 5))
+
+  if base-damage < 0 [
+    set base-damage 0
+  ]
+
+  ;; ───────────────────────────────────────────────────────────
+  ;; Bunker structure damage — destroys fortifications
+  ;; Cascading effect: ejected occupants are suppressed & demoralized
+  ;; ───────────────────────────────────────────────────────────
+  if bunker? [
+    set bunker-strength bunker-strength - base-damage
+
+    ;; Bunker destroyed — structural failure
+    if bunker-strength <= 0 [
+      set bunker? false
+      set bunker-strength 0
+      set plabel ""
+      set bunkers-destroyed bunkers-destroyed + 1
+
+      ;; Cascade: all occupants are ejected and shocked
+      ask turtles-here with [breed = argentine-troops and in-bunker?] [
+        set in-bunker? false
+        set entrenched? false
+        apply-suppression 3
+        set morale morale - 20
+      ]
+    ]
+  ]
+
+  ;; ───────────────────────────────────────────────────────────
+  ;; Argentine troop damage resolution — terrain-dependent
+  ;; Calculates damage mitigation, suppression, morale loss, death
+  ;; ───────────────────────────────────────────────────────────
+  ask turtles-here with [breed = argentine-troops] [
+
+    ;; Assess troop's protective terrain state
+    let terrain "open"
+
+    if in-bunker? and [bunker?] of patch-here [
+      set terrain "bunker"
+    ]
+
+    if [trench?] of patch-here and not (in-bunker? and [bunker?] of patch-here) [
+      set terrain "trench"
+    ]
+
+    ;; Apply terrain-based damage mitigation
+    let damage base-damage
+
+    if terrain = "trench" [
+      set damage damage * trench-damage-mult
+      set ngfs-trench-exposures ngfs-trench-exposures + 1
+    ]
+
+    if terrain = "bunker" [
+      set damage damage * bunker-damage-mult
+      set ngfs-bunker-exposures ngfs-bunker-exposures + 1
+    ]
+
+    if terrain = "open" [
+      set ngfs-open-exposures ngfs-open-exposures + 1
+    ]
+
+    ;; Morale loss from combined casualty and bombardment effects
+    ;; casualties term: (strength reduction) * 0.5
+    ;; bombardment term: +0.25 (psychological impact per strike)
+    let morale-loss ((damage * 0.5) + 0.25)
+
+    ;; Apply effects
+    set strength strength - damage
+    set morale morale - morale-loss
+    
+    ;; Suppression — stronger in bunkers due to blast confinement
+    if terrain = "bunker" [
+      apply-suppression (ngfs-suppression-ticks * bunker-suppression-mult)
+    ]
+    if terrain != "bunker" [
+      apply-suppression ngfs-suppression-ticks
+    ]
+
+    ;; Analytics tracking
+    set ngfs-total-damage ngfs-total-damage + damage
+    set arg-strength-loss-total arg-strength-loss-total + damage
+
+    ;; ─────────────────────────────────────────────────────────
+    ;; Death probability — terrain-specific casualty curves
+    ;; Open terrain: high lethality; trenches: moderate; bunkers: low
+    ;; Formula: inherent risk + damage term + weakness term
+    ;; ─────────────────────────────────────────────────────────
+    let death-prob 0
+
+    if terrain = "open" [
+      set death-prob (0.02 + damage / 35 + max list 0 ((40 - strength) / 100))
+    ]
+
+    if terrain = "trench" [
+      set death-prob (0.01 + damage / 55 + max list 0 ((30 - strength) / 120))
+    ]
+
+    if terrain = "bunker" [
+      set death-prob (0.005 + damage / 90 + max list 0 ((20 - strength) / 150))
+    ]
+
+    ;; Cap death probability at 95%
+    if death-prob > 0.95 [
+      set death-prob 0.95
+    ]
+
+    ;; Unit dies if strength depleted OR fails death roll
+    if strength <= 0 or random-float 1 < death-prob [
+      set ngfs-total-kills ngfs-total-kills + 1
+      set argentine-casualties argentine-casualties + 1
+      die
+    ]
+
+  ]
+
+end

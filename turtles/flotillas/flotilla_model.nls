@@ -1,0 +1,172 @@
+flotillas-own [ flotilla-type next-wp phase-distance amphib-radius route ]
+
+to setup-flotillas
+  setup-amphib-flotilla
+end
+
+to setup-amphib-flotilla
+  set hermes-cap? 9
+  set invincible-cap? 1
+  
+  create-flotillas 1 [
+    set flotilla-type "amphib"
+
+     
+    set w-i 0
+    set amphib-radius 2
+    ;; set spawn location to be inbetween of two carriers
+    if any? carriers [
+      let cx mean [xcor] of carriers
+      let cy mean [ycor] of carriers
+      setxy cx cy
+    ]
+    
+    ifelse spawn-zone = "zone-5" [
+      set state "posted"
+      set waypoints (list (list 0 0))
+    ] [
+      ifelse ycor > 0 [
+        ;; NORTH ROUTE
+        set route "north"
+        set waypoints (list
+          (list 5  29)
+          (list -2 11) 
+          (list 0 0)
+        )
+      ] [
+        ;; SOUTH ROUTE
+        set route "south"
+        set waypoints (list
+          (list -2 -40)
+          (list -27 -30)
+          (list 0 0)
+        )
+      ] 
+    ]
+    
+    ;; optional coloring to see the waypoints ;; MOVE THIS!!!
+    if show-waypoints? [
+      foreach waypoints [ w ->
+        ask patch (item 0 w) (item 1 w) [ set pcolor violet ]
+      ]
+    ]
+    
+    set color violet
+    set size 0
+    set speed (10 / 60) * minutes-per-tick / km-per-patch ;; a little less than 15 knots
+    set state "phase1" 
+    set phase-distance 125 ;; set so the destroyers/frigates move to final positions when flotilla is 75 patches from landing point
+    ;; TODO: should this be a real distance? @Katelyn
+    
+    hatch-amphibs 10 [
+      set shape "default" ;; determines the icon to display the turtle
+      set name "type_42"
+      set speed [speed] of myself
+      set state "convoy"
+      set radar-range 18
+      set gun-range 10
+      set sam-range 8
+      set mez-range  5
+      set turn-rate 0.5
+      set troop-count 50
+      set size 1.5
+      set color brown
+
+      set w-i 0
+      
+      ifelse spawn-zone = "zone-5" [
+        set state "approach"
+        if ycor >= 11 [ ;; 5T
+          set waypoints (list
+            (list -2 11)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+        if ycor >= -14 [ ;; 5M
+          set waypoints (list 
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+        if ycor < -14 [ ;; 5B
+          set waypoints (list 
+            (list -20 -14)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+      ] [
+        ifelse [route] of myself = "north" [
+          set waypoints (list
+            (list -2 11)
+            (list -2 9)
+            (list 3 7)
+          )
+        ] [
+          set waypoints (list 
+            (list -27 -30)
+            (list -20 -14)
+            (list -2 9)
+            (list 3 7)
+          )
+        ]
+      ]
+
+      ;; optional coloring to see the waypoints
+      if show-waypoints? [
+        foreach waypoints [ w ->
+          ask patch (item 0 w) (item 1 w) [ set pcolor magenta ]
+        ]
+      ]
+      
+      let ar [amphib-radius] of myself
+      set my-flotilla myself 
+      
+      setxy ([xcor] of myself + ar - random-float (2 * ar)) ([ycor] of myself + ar - random-float (2 * ar))
+    ]
+  ]
+end
+
+to move-flotillas
+  ask flotillas [
+    if state != "posted" [
+      if flotilla-type = "amphib" [
+        set next-wp (item w-i waypoints)
+        let phase-wp (item (length waypoints - 1) waypoints)
+
+        ifelse distance patch (item 0 next-wp) (item 1 next-wp) >= (1.5 * speed) [ ;; check to see if the flotilla reached its waypoint, multiplier prevents glitching
+          face patch (item 0 next-wp) (item 1 next-wp)
+          forward speed
+        ][ 
+          set w-i w-i + 1 
+          if w-i >= length waypoints [
+            set state "posted"
+          ]
+        ] 
+      
+        if state != "posted" [
+          ifelse w-i = (length waypoints - 2) [ 
+            set state "phase3" 
+          ][
+            ifelse w-i = (length waypoints - 1) [ 
+              set state "posted"
+            ][
+              if distance patch (item 0 phase-wp) (item 1 phase-wp) < phase-distance [
+                set hermes-cap? 8
+                set invincible-cap? 10
+                set state "phase2"
+              ] 
+            ]
+          ]
+        ]
+      
+        ifelse show-stat? [
+          set label state
+        ][ 
+          set label "" 
+        ]
+      ]
+    ]
+  ]
+end
